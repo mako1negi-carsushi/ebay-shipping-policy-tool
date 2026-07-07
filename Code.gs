@@ -45,6 +45,9 @@ function onOpen() {
     .addItem('既存出品: 選択行をドライラン', 'dryRunExistingSelectedRows')
     .addItem('既存出品: publish=TRUEをドライラン', 'dryRunExistingApprovedRows')
     .addSeparator()
+    .addItem('Trading API: 選択行をドライラン', 'dryRunTradingSelectedRows')
+    .addItem('Trading API: 選択行を更新', 'updateTradingSelectedRows')
+    .addSeparator()
     .addItem('移行: 選択行をInventory APIへ移行', 'migrateSelectedRowsToInventory')
     .addItem('移行: publish=TRUEをInventory APIへ移行', 'migrateApprovedRowsToInventory')
     .addSeparator()
@@ -414,6 +417,48 @@ function updateExistingApprovedRows() {
   processExistingRows_({ selectedOnly: false, updateEbay: true });
 }
 
+function dryRunTradingSelectedRows() {
+  processTradingRows_({ selectedOnly: true, updateEbay: false });
+}
+
+function updateTradingSelectedRows() {
+  processTradingRows_({ selectedOnly: true, updateEbay: true });
+}
+
+function processTradingRows_(options) {
+  const sheet = getSheet_();
+  const rows = getRowsToProcess_(sheet, options.selectedOnly);
+  if (rows.length === 0) {
+    SpreadsheetApp.getUi().alert('処理対象の行がありません。');
+    return;
+  }
+
+  const props = getConfig_();
+  rows.forEach(rowNumber => {
+    try {
+      const row = readRowForTrading_(sheet, rowNumber);
+      const item = getTradingItem_(row.listingId, props);
+      fillRowFromTradingItem_(sheet, rowNumber, row, item);
+      const requestXml = buildReviseFixedPriceItemXml_(row, item, props);
+      writeCell_(sheet, rowNumber, 'requestPreview', requestXml);
+
+      if (!options.updateEbay) {
+        writeCell_(sheet, rowNumber, 'status', 'TRADING_DRY_RUN_OK');
+        writeCell_(sheet, rowNumber, 'lastError', '');
+        return;
+      }
+
+      const response = reviseFixedPriceItem_(requestXml, props);
+      writeCell_(sheet, rowNumber, 'status', 'TRADING_UPDATED');
+      writeCell_(sheet, rowNumber, 'lastError', '');
+      writeCell_(sheet, rowNumber, 'requestPreview', requestXml + '\n\n--- RESPONSE ---\n' + response);
+    } catch (err) {
+      writeCell_(sheet, rowNumber, 'status', 'ERROR');
+      writeCell_(sheet, rowNumber, 'lastError', String(err && err.stack ? err.stack : err));
+    }
+  });
+}
+
 function migrateSelectedRowsToInventory() {
   migrateRowsToInventory_({ selectedOnly: true });
 }
@@ -719,6 +764,106 @@ function updateOffer_(offerId, payload, props) {
   }, props);
 }
 
+function getTradingItem_(listingId, props) {
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?>' +
+    '<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
+    '<Version>' + getTradingApiVersion_(props) + '</Version>' +
+    '<DetailLevel>ReturnAll</DetailLevel>' +
+    '<ItemID>' + escapeXml_(listingId) + '</ItemID>' +
+    '</GetItemRequest>';
+  const responseText = tradingFetch_('GetItem', xml, props);
+  const doc = XmlService.parse(responseText);
+  assertTradingAck_(doc, responseText);
+  return parseTradingItem_(doc);
+}
+
+function reviseFixedPriceItem_(requestXml, props) {
+  const responseText = tradingFetch_('ReviseFixedPriceItem', requestXml, props);
+  const doc = XmlService.parse(responseText);
+  assertTradingAck_(doc, responseText);
+  return responseText;
+}
+
+function tradingFetch_(callName, requestXml, props) {
+  const url = getTradingApiBase_(props);
+  const response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'text/xml; charset=UTF-8',
+    headers: {
+      'X-EBAY-API-COMPATIBILITY-LEVEL': getTradingApiVersion_(props),
+      'X-EBAY-API-CALL-NAME': callName,
+      'X-EBAY-API-SITEID': getTradingSiteId_(props),
+      'X-EBAY-API-IAF-TOKEN': getValidAccessToken_(props)
+    },
+    payload: requestXml,
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  const text = response.getContentText();
+  if (code < 200 || code >= 300) {
+    throw new Error(callName + ' failed: HTTP ' + code + ' ' + text);
+  }
+  return text;
+}
+
+function parseTradingItem_(doc) {
+  const root = doc.getRootElement();
+  const ns = root.getNamespace();
+  const item = child_(root, ns, 'Item');
+  if (!item) {
+    throw new Error('GetItem responseにItemがありません。');
+  }
+
+  const sellingStatus = child_(item, ns, 'SellingStatus');
+  const currentPrice = sellingStatus ? child_(sellingStatus, ns, 'CurrentPrice') : null;
+  const sellerProfiles = child_(item, ns, 'SellerProfiles');
+  const paymentProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerPaymentProfile') : null;
+  const returnProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerReturnProfile') : null;
+  const shippingProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerShippingProfile') : null;
+
+  return {
+    itemId: textChild_(item, ns, 'ItemID'),
+    sku: textChild_(item, ns, 'SKU'),
+    price: currentPrice ? currentPrice.getText() : '',
+    paymentProfileId: paymentProfile ? textChild_(paymentProfile, ns, 'PaymentProfileID') : '',
+    returnProfileId: returnProfile ? textChild_(returnProfile, ns, 'ReturnProfileID') : '',
+    shippingProfileId: shippingProfile ? textChild_(shippingProfile, ns, 'ShippingProfileID') : ''
+  };
+}
+
+function buildReviseFixedPriceItemXml_(row, item, props) {
+  const paymentProfileId = item.paymentProfileId || props.PAYMENT_POLICY_ID;
+  const returnProfileId = item.returnProfileId || props.RETURN_POLICY_ID;
+  const shippingProfileId = row.fulfillmentPolicyId || item.shippingProfileId || props.FULFILLMENT_POLICY_ID;
+  if (!paymentProfileId || !returnProfileId || !shippingProfileId) {
+    throw new Error('Trading API更新には payment/return/shipping のBusiness Policy IDが必要です。GetItemまたはScript Propertiesを確認してください。');
+  }
+
+  const shippingOverride = getShippingOverride_(row);
+  return (
+    '<?xml version="1.0" encoding="utf-8"?>' +
+    '<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
+    '<Version>' + getTradingApiVersion_(props) + '</Version>' +
+    '<Item>' +
+    '<ItemID>' + escapeXml_(row.listingId) + '</ItemID>' +
+    '<SellerProfiles>' +
+    '<SellerPaymentProfile><PaymentProfileID>' + escapeXml_(paymentProfileId) + '</PaymentProfileID></SellerPaymentProfile>' +
+    '<SellerReturnProfile><ReturnProfileID>' + escapeXml_(returnProfileId) + '</ReturnProfileID></SellerReturnProfile>' +
+    '<SellerShippingProfile><ShippingProfileID>' + escapeXml_(shippingProfileId) + '</ShippingProfileID></SellerShippingProfile>' +
+    '</SellerProfiles>' +
+    '<ShippingServiceCostOverrideList>' +
+    '<ShippingServiceCostOverride>' +
+    '<ShippingServiceType>Domestic</ShippingServiceType>' +
+    '<ShippingServicePriority>1</ShippingServicePriority>' +
+    '<ShippingServiceCost currencyID="' + escapeXml_(props.CURRENCY) + '">' + escapeXml_(shippingOverride) + '</ShippingServiceCost>' +
+    '</ShippingServiceCostOverride>' +
+    '</ShippingServiceCostOverrideList>' +
+    '</Item>' +
+    '</ReviseFixedPriceItemRequest>'
+  );
+}
+
 function ebayFetch_(path, request, props) {
   const options = {
     method: request.method,
@@ -790,7 +935,9 @@ function getConfig_() {
     RETURN_POLICY_ID: store.getProperty('RETURN_POLICY_ID'),
     MARKETPLACE_ID: store.getProperty('MARKETPLACE_ID') || 'EBAY_US',
     CURRENCY: store.getProperty('CURRENCY') || 'USD',
-    CONTENT_LANGUAGE: store.getProperty('CONTENT_LANGUAGE') || 'en-US'
+    CONTENT_LANGUAGE: store.getProperty('CONTENT_LANGUAGE') || 'en-US',
+    TRADING_SITE_ID: store.getProperty('TRADING_SITE_ID'),
+    TRADING_API_VERSION: store.getProperty('TRADING_API_VERSION') || '1455'
   };
 
   [
@@ -861,6 +1008,21 @@ function getWebAuthBase_(props) {
   return props.ENVIRONMENT === 'SANDBOX' ? 'https://auth.sandbox.ebay.com' : 'https://auth.ebay.com';
 }
 
+function getTradingApiBase_(props) {
+  return props.ENVIRONMENT === 'SANDBOX' ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll';
+}
+
+function getTradingApiVersion_(props) {
+  return props.TRADING_API_VERSION || '1455';
+}
+
+function getTradingSiteId_(props) {
+  if (props.TRADING_SITE_ID) {
+    return props.TRADING_SITE_ID;
+  }
+  return props.MARKETPLACE_ID === 'EBAY_MOTORS' ? '100' : '0';
+}
+
 function getEbayScopes_() {
   return [
     'https://api.ebay.com/oauth/api_scope/sell.inventory',
@@ -911,6 +1073,34 @@ function readRowForMigration_(sheet, rowNumber) {
     throw new Error('Inventory APIへ移行するには listingId が必須です。');
   }
   return row;
+}
+
+function readRowForTrading_(sheet, rowNumber) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const values = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = {};
+  headers.forEach((header, index) => {
+    row[header] = values[index];
+  });
+  if (!row.listingId) {
+    throw new Error('Trading API更新には listingId が必須です。');
+  }
+  return row;
+}
+
+function fillRowFromTradingItem_(sheet, rowNumber, row, item) {
+  if (row.sku === '' && item.sku) {
+    row.sku = item.sku;
+    writeCell_(sheet, rowNumber, 'sku', item.sku);
+  }
+  if (row.priceUSD === '' && item.price) {
+    row.priceUSD = roundMoney_(item.price);
+    writeCell_(sheet, rowNumber, 'priceUSD', row.priceUSD);
+  }
+  if (row.fulfillmentPolicyId === '' && item.shippingProfileId) {
+    row.fulfillmentPolicyId = item.shippingProfileId;
+    writeCell_(sheet, rowNumber, 'fulfillmentPolicyId', item.shippingProfileId);
+  }
 }
 
 function validateRequiredForExistingUpdate_(row) {
@@ -987,4 +1177,32 @@ function extractAuthCode_(value) {
   }
   const match = text.match(/[?&]code=([^&]+)/);
   return decodeURIComponent(match ? match[1] : text);
+}
+
+function assertTradingAck_(doc, responseText) {
+  const root = doc.getRootElement();
+  const ns = root.getNamespace();
+  const ack = textChild_(root, ns, 'Ack');
+  if (ack === 'Success' || ack === 'Warning') {
+    return;
+  }
+  throw new Error('Trading API failed: ' + responseText);
+}
+
+function child_(element, ns, name) {
+  return element ? element.getChild(name, ns) : null;
+}
+
+function textChild_(element, ns, name) {
+  const child = child_(element, ns, name);
+  return child ? child.getText() : '';
+}
+
+function escapeXml_(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
