@@ -45,6 +45,9 @@ function onOpen() {
     .addItem('既存出品: 選択行をドライラン', 'dryRunExistingSelectedRows')
     .addItem('既存出品: publish=TRUEをドライラン', 'dryRunExistingApprovedRows')
     .addSeparator()
+    .addItem('移行: 選択行をInventory APIへ移行', 'migrateSelectedRowsToInventory')
+    .addItem('移行: publish=TRUEをInventory APIへ移行', 'migrateApprovedRowsToInventory')
+    .addSeparator()
     .addItem('既存出品: 選択行の送料を更新', 'updateExistingSelectedRows')
     .addItem('既存出品: publish=TRUEの送料を更新', 'updateExistingApprovedRows')
     .addToUi();
@@ -411,6 +414,51 @@ function updateExistingApprovedRows() {
   processExistingRows_({ selectedOnly: false, updateEbay: true });
 }
 
+function migrateSelectedRowsToInventory() {
+  migrateRowsToInventory_({ selectedOnly: true });
+}
+
+function migrateApprovedRowsToInventory() {
+  migrateRowsToInventory_({ selectedOnly: false });
+}
+
+function migrateRowsToInventory_(options) {
+  const sheet = getSheet_();
+  const rows = getRowsToProcess_(sheet, options.selectedOnly);
+  if (rows.length === 0) {
+    SpreadsheetApp.getUi().alert('処理対象の行がありません。');
+    return;
+  }
+
+  const props = getPolicyFetchConfig_();
+  rows.forEach(rowNumber => {
+    try {
+      const row = readRowForMigration_(sheet, rowNumber);
+      const response = bulkMigrateListing_(row.listingId, props);
+      const result = getMigrationResult_(response, row.listingId);
+      if (result.errors && result.errors.length) {
+        throw new Error('Migration failed: ' + JSON.stringify(result.errors));
+      }
+
+      const inventoryItem = getFirstMigratedInventoryItem_(result);
+      if (!inventoryItem.offerId) {
+        throw new Error('移行レスポンスにofferIdがありません: ' + JSON.stringify(result));
+      }
+
+      writeCell_(sheet, rowNumber, 'offerId', inventoryItem.offerId);
+      if (!row.sku && inventoryItem.sku) {
+        writeCell_(sheet, rowNumber, 'sku', inventoryItem.sku);
+      }
+      writeCell_(sheet, rowNumber, 'status', 'MIGRATED');
+      writeCell_(sheet, rowNumber, 'lastError', '');
+      writeCell_(sheet, rowNumber, 'requestPreview', JSON.stringify(response, null, 2));
+    } catch (err) {
+      writeCell_(sheet, rowNumber, 'status', 'ERROR');
+      writeCell_(sheet, rowNumber, 'lastError', String(err && err.stack ? err.stack : err));
+    }
+  });
+}
+
 function processExistingRows_(options) {
   const sheet = getSheet_();
   const rows = getRowsToProcess_(sheet, options.selectedOnly);
@@ -580,6 +628,34 @@ function getReturnPolicies_(props) {
   return ebayFetch_('/sell/account/v1/return_policy?marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID), {
     method: 'get'
   }, props);
+}
+
+function bulkMigrateListing_(listingId, props) {
+  return ebayFetch_('/sell/inventory/v1/bulk_migrate_listing', {
+    method: 'post',
+    payload: {
+      requests: [{
+        listingId: String(listingId)
+      }]
+    }
+  }, props);
+}
+
+function getMigrationResult_(response, listingId) {
+  const responses = response.responses || [];
+  if (responses.length === 0) {
+    throw new Error('移行レスポンスが空です: ' + JSON.stringify(response));
+  }
+  const match = responses.filter(item => String(item.listingId) === String(listingId))[0];
+  return match || responses[0];
+}
+
+function getFirstMigratedInventoryItem_(result) {
+  const items = result.inventoryItems || [];
+  if (items.length === 0) {
+    throw new Error('移行レスポンスにinventoryItemsがありません: ' + JSON.stringify(result));
+  }
+  return items[0];
 }
 
 function getAllInventorySkus_(props) {
@@ -821,6 +897,19 @@ function readRow_(sheet, rowNumber) {
     row[header] = values[index];
   });
   validateRequiredForExistingUpdate_(row);
+  return row;
+}
+
+function readRowForMigration_(sheet, rowNumber) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const values = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = {};
+  headers.forEach((header, index) => {
+    row[header] = values[index];
+  });
+  if (!row.listingId) {
+    throw new Error('Inventory APIへ移行するには listingId が必須です。');
+  }
   return row;
 }
 
