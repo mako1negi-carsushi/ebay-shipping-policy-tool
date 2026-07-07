@@ -2,6 +2,9 @@ const SHEET_NAME = 'Listings';
 const POLICIES_SHEET_NAME = 'Policies';
 const BULK_POLICY_CHANGE_SHEET_NAME = 'BulkPolicyChange';
 const BULK_TRADING_STATE_KEY = 'BULK_TRADING_STATE';
+const BULK_TRADING_SEARCH_HANDLER = 'continueBulkTradingPolicySearch';
+const BULK_TRADING_SEARCH_TIME_LIMIT_MS = 270000;
+const BULK_TRADING_SEARCH_RESUME_DELAY_MS = 60000;
 const DEFAULT_HEADERS = [
   'publish',
   'sku',
@@ -51,6 +54,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Trading一括: 新規検索を開始', 'prepareBulkTradingPolicyChange')
     .addItem('Trading一括: 続きから検索', 'continueBulkTradingPolicySearch')
+    .addItem('Trading一括: 自動検索を停止', 'cancelBulkTradingPolicySearch')
     .addItem('Trading一括: approve=TRUEを更新', 'applyBulkTradingPolicyChange')
     .addSeparator()
     .addItem('移行: 選択行をInventory APIへ移行', 'migrateSelectedRowsToInventory')
@@ -413,19 +417,6 @@ function prepareBulkTradingPolicyChange() {
   const fromPolicyId = fromResponse.getResponseText().trim();
   const toPolicyId = toResponse.getResponseText().trim();
   const dutyRate = dutyResponse.getResponseText().trim();
-  const limitResponse = ui.prompt(
-    '最大検索件数',
-    '今回チェックする最大出品数を入力してください。まずは 50 推奨です。',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (limitResponse.getSelectedButton() !== ui.Button.OK) {
-    return;
-  }
-  const maxItems = asInteger_(limitResponse.getResponseText().trim() || 50, '最大検索件数');
-  if (maxItems < 1) {
-    ui.alert('最大検索件数は1以上で入力してください。');
-    return;
-  }
   if (!fromPolicyId || !toPolicyId || dutyRate === '') {
     ui.alert('置換元、変更先、関税率をすべて入力してください。');
     return;
@@ -436,14 +427,17 @@ function prepareBulkTradingPolicyChange() {
   }
   asNumber_(dutyRate, 'dutyRate');
 
+  deleteBulkTradingSearchTriggers_();
   initializeBulkTradingSheet_();
   saveBulkTradingState_({
     fromPolicyId: fromPolicyId,
     toPolicyId: toPolicyId,
     dutyRate: dutyRate,
-    batchSize: maxItems,
+    autoContinue: true,
+    timeLimitMs: BULK_TRADING_SEARCH_TIME_LIMIT_MS,
     nextPageNumber: 1,
     nextItemIndex: 0,
+    nextCandidateRow: 2,
     totalPages: '',
     checked: 0,
     matched: 0,
@@ -452,26 +446,39 @@ function prepareBulkTradingPolicyChange() {
   continueBulkTradingPolicySearch();
 }
 
-function continueBulkTradingPolicySearch() {
+function continueBulkTradingPolicySearch(event) {
+  const isAutoRun = Boolean(event && event.triggerUid);
+  deleteBulkTradingSearchTriggers_();
   const state = getBulkTradingState_();
   if (!state) {
-    SpreadsheetApp.getUi().alert('一括検索の状態がありません。先に「Trading一括: 新規検索を開始」を実行してください。');
+    if (!isAutoRun) {
+      SpreadsheetApp.getUi().alert('一括検索の状態がありません。先に「Trading一括: 新規検索を開始」を実行してください。');
+    }
     return;
   }
   if (state.done) {
-    SpreadsheetApp.getUi().alert('検索は完了済みです。BulkPolicyChangeシートを確認してください。');
+    if (!isAutoRun) {
+      SpreadsheetApp.getUi().alert('検索は完了済みです。BulkPolicyChangeシートを確認してください。');
+    }
     return;
+  }
+  if (!isAutoRun) {
+    state.autoContinue = true;
   }
 
   const props = getConfig_();
   const sheet = getBulkPolicyChangeSheet_();
   const entriesPerPage = 200;
+  const startedAt = Date.now();
+  const timeLimitMs = state.timeLimitMs || BULK_TRADING_SEARCH_TIME_LIMIT_MS;
   let checkedThisRun = 0;
   let matchedThisRun = 0;
+  let nextCandidateRow = state.nextCandidateRow || getNextBulkCandidateRow_(sheet);
+  let pausedByTime = false;
 
-  setBulkSearchStatus_('RUNNING', '検索中: page ' + state.nextPageNumber + ' / ' + (state.totalPages || '?') + ', 今回最大 ' + state.batchSize + ' 件');
+  setBulkSearchStatus_('RUNNING', '検索中: page ' + state.nextPageNumber + ' / ' + (state.totalPages || '?') + '。時間切れ前に自動停止して再開します。');
 
-  while (checkedThisRun < state.batchSize) {
+  while (hasBulkTradingSearchTime_(startedAt, timeLimitMs)) {
     const page = getTradingActiveListPage_(state.nextPageNumber, entriesPerPage, props);
     state.totalPages = page.totalPages;
     if (page.items.length === 0) {
@@ -481,9 +488,10 @@ function continueBulkTradingPolicySearch() {
 
     let finishedPage = true;
     for (let index = state.nextItemIndex || 0; index < page.items.length; index++) {
-      if (checkedThisRun >= state.batchSize) {
+      if (!hasBulkTradingSearchTime_(startedAt, timeLimitMs)) {
         state.nextItemIndex = index;
         finishedPage = false;
+        pausedByTime = true;
         break;
       }
       const itemSummary = page.items[index];
@@ -503,7 +511,7 @@ function continueBulkTradingPolicySearch() {
         overrideShippingCostUSD: ''
       };
       const requestXml = buildReviseFixedPriceItemXml_(row, item, props);
-      appendBulkTradingCandidate_(sheet, [
+      nextCandidateRow = appendBulkTradingCandidate_(sheet, [
         false,
         item.itemId,
         item.sku,
@@ -515,7 +523,8 @@ function continueBulkTradingPolicySearch() {
         'READY',
         '',
         requestXml
-      ]);
+      ], nextCandidateRow);
+      state.nextCandidateRow = nextCandidateRow;
       matchedThisRun++;
       state.matched++;
     }
@@ -531,17 +540,31 @@ function continueBulkTradingPolicySearch() {
     }
   }
 
+  if (!state.done && !pausedByTime && !hasBulkTradingSearchTime_(startedAt, timeLimitMs)) {
+    pausedByTime = true;
+  }
+
+  if (state.done) {
+    state.autoContinue = false;
+    deleteBulkTradingSearchTriggers_();
+  } else if (state.autoContinue !== false) {
+    scheduleBulkTradingSearchTrigger_();
+  }
+
+  SpreadsheetApp.flush();
   saveBulkTradingState_(state);
   setBulkSearchStatus_(
-    state.done ? 'DONE' : 'PAUSED',
-    '今回チェック: ' + checkedThisRun + '件 / 今回候補: ' + matchedThisRun + '件 / 累計チェック: ' + state.checked + '件 / 累計候補: ' + state.matched + '件 / 次ページ: ' + state.nextPageNumber + ' / ' + (state.totalPages || '?')
+    state.done ? 'DONE' : 'AUTO_PAUSED',
+    '今回チェック: ' + checkedThisRun + '件 / 今回候補: ' + matchedThisRun + '件 / 累計チェック: ' + state.checked + '件 / 累計候補: ' + state.matched + '件 / 次ページ: ' + state.nextPageNumber + ' / ' + (state.totalPages || '?') + (state.done ? '' : ' / 1分後に自動再開します')
   );
-  SpreadsheetApp.getUi().alert(
-    (state.done ? '検索完了。' : 'この回の検索が完了しました。続きは「Trading一括: 続きから検索」を実行してください。') +
-    '\n今回チェック: ' + checkedThisRun +
-    '\n今回候補: ' + matchedThisRun +
-    '\n累計候補: ' + state.matched
-  );
+  if (!isAutoRun) {
+    SpreadsheetApp.getUi().alert(
+      (state.done ? '検索完了。' : 'この回の検索が完了しました。続きは1分後に自動再開します。') +
+      '\n今回チェック: ' + checkedThisRun +
+      '\n今回候補: ' + matchedThisRun +
+      '\n累計候補: ' + state.matched
+    );
+  }
 }
 
 function initializeBulkTradingSheet_() {
@@ -566,19 +589,24 @@ function initializeBulkTradingSheet_() {
   setBulkSearchStatus_('READY', '検索条件を保存しました。候補は2行目以降に追加されます。');
 }
 
-function appendBulkTradingCandidate_(sheet, row) {
+function appendBulkTradingCandidate_(sheet, row, rowNumber) {
+  const targetRow = rowNumber || getNextBulkCandidateRow_(sheet);
+  sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+  sheet.getRange(targetRow, 1).insertCheckboxes();
+  return targetRow + 1;
+}
+
+function getNextBulkCandidateRow_(sheet) {
   const lastRow = Math.max(2, sheet.getLastRow());
   const listingIds = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-  let rowNumber = 2;
+  let nextRow = 2;
   for (let index = listingIds.length - 1; index >= 0; index--) {
     if (listingIds[index][0] !== '') {
-      rowNumber = index + 3;
+      nextRow = index + 3;
       break;
     }
   }
-  sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
-  sheet.getRange(rowNumber, 1).insertCheckboxes();
-  SpreadsheetApp.flush();
+  return nextRow;
 }
 
 function prepareBulkSheetWithStatus_(message) {
@@ -605,6 +633,38 @@ function saveBulkTradingState_(state) {
 function getBulkTradingState_() {
   const value = PropertiesService.getScriptProperties().getProperty(BULK_TRADING_STATE_KEY);
   return value ? JSON.parse(value) : null;
+}
+
+function hasBulkTradingSearchTime_(startedAt, timeLimitMs) {
+  return Date.now() - startedAt < timeLimitMs;
+}
+
+function scheduleBulkTradingSearchTrigger_() {
+  deleteBulkTradingSearchTriggers_();
+  ScriptApp
+    .newTrigger(BULK_TRADING_SEARCH_HANDLER)
+    .timeBased()
+    .after(BULK_TRADING_SEARCH_RESUME_DELAY_MS)
+    .create();
+}
+
+function deleteBulkTradingSearchTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === BULK_TRADING_SEARCH_HANDLER) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+function cancelBulkTradingPolicySearch() {
+  const state = getBulkTradingState_();
+  if (state) {
+    state.autoContinue = false;
+    saveBulkTradingState_(state);
+  }
+  deleteBulkTradingSearchTriggers_();
+  setBulkSearchStatus_('STOPPED', '自動検索を停止しました。再開する場合は「Trading一括: 続きから検索」を実行してください。');
+  SpreadsheetApp.getUi().alert('自動検索を停止しました。');
 }
 
 function setBulkSearchStatus_(status, message) {
