@@ -48,6 +48,9 @@ function onOpen() {
     .addItem('Trading API: 選択行をドライラン', 'dryRunTradingSelectedRows')
     .addItem('Trading API: 選択行を更新', 'updateTradingSelectedRows')
     .addSeparator()
+    .addItem('Trading一括: 対象出品を検索', 'prepareBulkTradingPolicyChange')
+    .addItem('Trading一括: approve=TRUEを更新', 'applyBulkTradingPolicyChange')
+    .addSeparator()
     .addItem('移行: 選択行をInventory APIへ移行', 'migrateSelectedRowsToInventory')
     .addItem('移行: publish=TRUEをInventory APIへ移行', 'migrateApprovedRowsToInventory')
     .addSeparator()
@@ -374,6 +377,161 @@ function applyBulkFulfillmentPolicyChange() {
   });
 
   SpreadsheetApp.getUi().alert(updated + '件を更新しました。');
+}
+
+function prepareBulkTradingPolicyChange() {
+  const ui = SpreadsheetApp.getUi();
+  const fromResponse = ui.prompt(
+    '現在の配送ポリシーID',
+    '置換元のShippingProfileIDを入力してください。',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (fromResponse.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const toResponse = ui.prompt(
+    '変更先の配送ポリシーID',
+    '変更先のShippingProfileIDを入力してください。',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (toResponse.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const dutyResponse = ui.prompt(
+    '関税率',
+    '送料上書き額を計算する関税率を入力してください。例: 10%なら 0.1',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (dutyResponse.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const fromPolicyId = fromResponse.getResponseText().trim();
+  const toPolicyId = toResponse.getResponseText().trim();
+  const dutyRate = dutyResponse.getResponseText().trim();
+  if (!fromPolicyId || !toPolicyId || dutyRate === '') {
+    ui.alert('置換元、変更先、関税率をすべて入力してください。');
+    return;
+  }
+  if (fromPolicyId === toPolicyId) {
+    ui.alert('置換元と変更先が同じです。別のShippingProfileIDを指定してください。');
+    return;
+  }
+  asNumber_(dutyRate, 'dutyRate');
+
+  const props = getConfig_();
+  const items = getAllTradingActiveItems_(props);
+  const rows = [[
+    'approve',
+    'listingId',
+    'sku',
+    'priceUSD',
+    'dutyRate',
+    'currentFulfillmentPolicyId',
+    'targetFulfillmentPolicyId',
+    'overrideShippingCostUSD',
+    'status',
+    'lastError',
+    'requestPreview'
+  ]];
+
+  items
+    .map(item => item.shippingProfileId ? item : getTradingItem_(item.itemId, props))
+    .filter(item => String(item.shippingProfileId) === String(fromPolicyId))
+    .forEach(item => {
+      const row = {
+        listingId: item.itemId,
+        sku: item.sku,
+        priceUSD: item.price,
+        dutyRate: dutyRate,
+        fulfillmentPolicyId: toPolicyId,
+        overrideShippingCostUSD: ''
+      };
+      const requestXml = buildReviseFixedPriceItemXml_(row, item, props);
+      rows.push([
+        false,
+        item.itemId,
+        item.sku,
+        item.price,
+        dutyRate,
+        fromPolicyId,
+        toPolicyId,
+        '',
+        'READY',
+        '',
+        requestXml
+      ]);
+    });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(BULK_POLICY_CHANGE_SHEET_NAME) || ss.insertSheet(BULK_POLICY_CHANGE_SHEET_NAME);
+  sheet.clear();
+  sheet.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  sheet.setFrozenRows(1);
+  if (rows.length > 1) {
+    sheet.getRange(2, 1, rows.length - 1, 1).insertCheckboxes();
+  }
+  sheet.autoResizeColumns(1, rows[0].length);
+  ui.alert((rows.length - 1) + '件のTrading API候補をBulkPolicyChangeシートに作成しました。更新する行のapproveをTRUEにしてください。');
+}
+
+function applyBulkTradingPolicyChange() {
+  const props = getConfig_();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BULK_POLICY_CHANGE_SHEET_NAME);
+  if (!sheet) {
+    throw new Error(BULK_POLICY_CHANGE_SHEET_NAME + ' シートがありません。先に「Trading一括: 対象出品を検索」を実行してください。');
+  }
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    SpreadsheetApp.getUi().alert('更新対象がありません。');
+    return;
+  }
+
+  const headers = values[0];
+  const indexes = {};
+  headers.forEach((header, index) => indexes[header] = index);
+  let updated = 0;
+
+  values.slice(1).forEach((rowValues, index) => {
+    const rowNumber = index + 2;
+    if (rowValues[indexes.approve] !== true) {
+      return;
+    }
+
+    try {
+      const row = {
+        listingId: rowValues[indexes.listingId],
+        sku: rowValues[indexes.sku],
+        priceUSD: rowValues[indexes.priceUSD],
+        dutyRate: rowValues[indexes.dutyRate],
+        fulfillmentPolicyId: rowValues[indexes.targetFulfillmentPolicyId],
+        overrideShippingCostUSD: rowValues[indexes.overrideShippingCostUSD]
+      };
+      if (!row.listingId || !row.fulfillmentPolicyId) {
+        throw new Error('listingIdまたはtargetFulfillmentPolicyIdが空です。');
+      }
+
+      const item = getTradingItem_(row.listingId, props);
+      if (row.priceUSD === '' && item.price) {
+        row.priceUSD = roundMoney_(item.price);
+        writeBulkCell_(sheet, rowNumber, indexes.priceUSD + 1, row.priceUSD);
+      }
+      const requestXml = buildReviseFixedPriceItemXml_(row, item, props);
+      const response = reviseFixedPriceItem_(requestXml, props);
+      writeBulkCell_(sheet, rowNumber, indexes.status + 1, 'TRADING_UPDATED');
+      writeBulkCell_(sheet, rowNumber, indexes.lastError + 1, '');
+      writeBulkCell_(sheet, rowNumber, indexes.requestPreview + 1, requestXml + '\n\n--- RESPONSE ---\n' + response);
+      updated++;
+    } catch (err) {
+      writeBulkCell_(sheet, rowNumber, indexes.status + 1, 'ERROR');
+      writeBulkCell_(sheet, rowNumber, indexes.lastError + 1, String(err && err.stack ? err.stack : err));
+    }
+  });
+
+  SpreadsheetApp.getUi().alert(updated + '件をTrading APIで更新しました。');
 }
 
 function applyFulfillmentPolicyValidation_(fulfillmentCount) {
@@ -785,6 +943,41 @@ function reviseFixedPriceItem_(requestXml, props) {
   return responseText;
 }
 
+function getAllTradingActiveItems_(props) {
+  const items = [];
+  const entriesPerPage = 200;
+  let pageNumber = 1;
+  while (true) {
+    const page = getTradingActiveListPage_(pageNumber, entriesPerPage, props);
+    items.push.apply(items, page.items);
+    if (pageNumber >= page.totalPages || page.items.length === 0) {
+      break;
+    }
+    pageNumber++;
+  }
+  return items;
+}
+
+function getTradingActiveListPage_(pageNumber, entriesPerPage, props) {
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?>' +
+    '<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
+    '<Version>' + getTradingApiVersion_(props) + '</Version>' +
+    '<DetailLevel>ReturnAll</DetailLevel>' +
+    '<ActiveList>' +
+    '<Include>true</Include>' +
+    '<Pagination>' +
+    '<EntriesPerPage>' + entriesPerPage + '</EntriesPerPage>' +
+    '<PageNumber>' + pageNumber + '</PageNumber>' +
+    '</Pagination>' +
+    '</ActiveList>' +
+    '</GetMyeBaySellingRequest>';
+  const responseText = tradingFetch_('GetMyeBaySelling', xml, props);
+  const doc = XmlService.parse(responseText);
+  assertTradingAck_(doc, responseText);
+  return parseTradingActiveListPage_(doc);
+}
+
 function tradingFetch_(callName, requestXml, props) {
   const url = getTradingApiBase_(props);
   const response = UrlFetchApp.fetch(url, {
@@ -815,6 +1008,40 @@ function parseTradingItem_(doc) {
     throw new Error('GetItem responseにItemがありません。');
   }
 
+  const sellingStatus = child_(item, ns, 'SellingStatus');
+  const currentPrice = sellingStatus ? child_(sellingStatus, ns, 'CurrentPrice') : null;
+  const sellerProfiles = child_(item, ns, 'SellerProfiles');
+  const paymentProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerPaymentProfile') : null;
+  const returnProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerReturnProfile') : null;
+  const shippingProfile = sellerProfiles ? child_(sellerProfiles, ns, 'SellerShippingProfile') : null;
+
+  return {
+    itemId: textChild_(item, ns, 'ItemID'),
+    sku: textChild_(item, ns, 'SKU'),
+    price: currentPrice ? currentPrice.getText() : '',
+    paymentProfileId: paymentProfile ? textChild_(paymentProfile, ns, 'PaymentProfileID') : '',
+    returnProfileId: returnProfile ? textChild_(returnProfile, ns, 'ReturnProfileID') : '',
+    shippingProfileId: shippingProfile ? textChild_(shippingProfile, ns, 'ShippingProfileID') : ''
+  };
+}
+
+function parseTradingActiveListPage_(doc) {
+  const root = doc.getRootElement();
+  const ns = root.getNamespace();
+  const activeList = child_(root, ns, 'ActiveList');
+  if (!activeList) {
+    return { items: [], totalPages: 1 };
+  }
+
+  const pagination = child_(activeList, ns, 'PaginationResult');
+  const totalPages = Number(pagination ? textChild_(pagination, ns, 'TotalNumberOfPages') || 1 : 1);
+  const itemArray = child_(activeList, ns, 'ItemArray');
+  const itemElements = itemArray ? itemArray.getChildren('Item', ns) : [];
+  const items = itemElements.map(item => parseTradingItemElement_(item, ns));
+  return { items: items, totalPages: totalPages || 1 };
+}
+
+function parseTradingItemElement_(item, ns) {
   const sellingStatus = child_(item, ns, 'SellingStatus');
   const currentPrice = sellingStatus ? child_(sellingStatus, ns, 'CurrentPrice') : null;
   const sellerProfiles = child_(item, ns, 'SellerProfiles');
