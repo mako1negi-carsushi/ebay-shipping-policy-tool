@@ -429,6 +429,7 @@ function processExistingRows_(options) {
         throw new Error('既存OfferのofferIdを取得できませんでした。skuまたはofferIdを確認してください。');
       }
 
+      fillRowFromExistingOffer_(sheet, rowNumber, row, existingOffer);
       const payload = buildExistingOfferUpdatePayload_(existingOffer, row, props);
       writeCell_(sheet, rowNumber, 'requestPreview', JSON.stringify(payload, null, 2));
       writeCell_(sheet, rowNumber, 'offerId', offerId);
@@ -467,6 +468,20 @@ function getExistingOfferForRow_(row, props) {
     throw new Error('同じskuで複数のOfferが見つかりました。offerId列に更新対象のofferIdを入れてください: ' + row.sku);
   }
   return offers[0];
+}
+
+function fillRowFromExistingOffer_(sheet, rowNumber, row, offer) {
+  const existingPrice = getExistingOfferPrice_(offer);
+  if (row.priceUSD === '' && existingPrice !== '') {
+    row.priceUSD = existingPrice;
+    writeCell_(sheet, rowNumber, 'priceUSD', existingPrice);
+  }
+
+  const existingPolicyId = getFulfillmentPolicyIdFromOffer_(offer);
+  if (row.fulfillmentPolicyId === '' && existingPolicyId !== '') {
+    row.fulfillmentPolicyId = existingPolicyId;
+    writeCell_(sheet, rowNumber, 'fulfillmentPolicyId', existingPolicyId);
+  }
 }
 
 function buildExistingOfferUpdatePayload_(offer, row, props) {
@@ -607,6 +622,14 @@ function getExistingShippingOverride_(offer) {
     return domestic.shippingCost.value;
   }
   return '0.00';
+}
+
+function getExistingOfferPrice_(offer) {
+  const price = offer && offer.pricingSummary ? offer.pricingSummary.price : null;
+  if (price && price.value !== '' && typeof price.value !== 'undefined') {
+    return roundMoney_(price.value);
+  }
+  return '';
 }
 
 function writeBulkCell_(sheet, rowNumber, columnNumber, value) {
@@ -804,9 +827,6 @@ function readRow_(sheet, rowNumber) {
 function validateRequiredForExistingUpdate_(row) {
   if (!row.sku && !row.offerId) {
     throw new Error('sku または offerId は必須です。');
-  }
-  if (row.overrideShippingCostUSD === '' && row.priceUSD === '') {
-    throw new Error('overrideShippingCostUSD が空の場合は priceUSD が必須です。');
   }
 }
 
