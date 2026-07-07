@@ -128,9 +128,10 @@ Trading API版はInventory APIへ移行しない代わりに、`ReviseFixedPrice
 2. 置換元のShippingProfileIDを入力します。
 3. 変更先のShippingProfileIDを入力します。
 4. 関税率を入力します。例: 10%なら `0.1`
-5. `BulkPolicyChange` シートに候補が作成されます。
-6. 更新したい行だけ `approve` をTRUEにします。
-7. `eBay出品 > Trading一括: approve=TRUEを更新`
+5. 最大検索件数を入力します。最初は `50` 推奨です。
+6. `BulkPolicyChange` シートに候補が作成されます。
+7. 更新したい行だけ `approve` をTRUEにします。
+8. `eBay出品 > Trading一括: approve=TRUEを更新`
 
 送料上書き額は `priceUSD * dutyRate` で計算されます。`overrideShippingCostUSD` に直接金額を入れた行は、その金額が優先されます。
 

@@ -411,6 +411,19 @@ function prepareBulkTradingPolicyChange() {
   const fromPolicyId = fromResponse.getResponseText().trim();
   const toPolicyId = toResponse.getResponseText().trim();
   const dutyRate = dutyResponse.getResponseText().trim();
+  const limitResponse = ui.prompt(
+    '最大検索件数',
+    '今回チェックする最大出品数を入力してください。まずは 50 推奨です。',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (limitResponse.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+  const maxItems = asInteger_(limitResponse.getResponseText().trim() || 50, '最大検索件数');
+  if (maxItems < 1) {
+    ui.alert('最大検索件数は1以上で入力してください。');
+    return;
+  }
   if (!fromPolicyId || !toPolicyId || dutyRate === '') {
     ui.alert('置換元、変更先、関税率をすべて入力してください。');
     return;
@@ -422,7 +435,8 @@ function prepareBulkTradingPolicyChange() {
   asNumber_(dutyRate, 'dutyRate');
 
   const props = getConfig_();
-  const items = getAllTradingActiveItems_(props);
+  prepareBulkSheetWithStatus_('Trading一括の候補を検索中です。しばらく待ってください。最大検索件数: ' + maxItems);
+  const items = getAllTradingActiveItems_(props, maxItems);
   const rows = [[
     'approve',
     'listingId',
@@ -437,10 +451,13 @@ function prepareBulkTradingPolicyChange() {
     'requestPreview'
   ]];
 
-  items
-    .map(item => item.shippingProfileId ? item : getTradingItem_(item.itemId, props))
-    .filter(item => String(item.shippingProfileId) === String(fromPolicyId))
-    .forEach(item => {
+  let checked = 0;
+  items.forEach(itemSummary => {
+    checked++;
+    const item = itemSummary.shippingProfileId ? itemSummary : getTradingItem_(itemSummary.itemId, props);
+    if (String(item.shippingProfileId) !== String(fromPolicyId)) {
+      return;
+    }
       const row = {
         listingId: item.itemId,
         sku: item.sku,
@@ -463,7 +480,7 @@ function prepareBulkTradingPolicyChange() {
         '',
         requestXml
       ]);
-    });
+  });
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(BULK_POLICY_CHANGE_SHEET_NAME) || ss.insertSheet(BULK_POLICY_CHANGE_SHEET_NAME);
@@ -474,7 +491,19 @@ function prepareBulkTradingPolicyChange() {
     sheet.getRange(2, 1, rows.length - 1, 1).insertCheckboxes();
   }
   sheet.autoResizeColumns(1, rows[0].length);
-  ui.alert((rows.length - 1) + '件のTrading API候補をBulkPolicyChangeシートに作成しました。更新する行のapproveをTRUEにしてください。');
+  ui.alert((rows.length - 1) + '件のTrading API候補をBulkPolicyChangeシートに作成しました。チェック件数: ' + checked + '件。更新する行のapproveをTRUEにしてください。');
+}
+
+function prepareBulkSheetWithStatus_(message) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(BULK_POLICY_CHANGE_SHEET_NAME) || ss.insertSheet(BULK_POLICY_CHANGE_SHEET_NAME);
+  sheet.clear();
+  sheet.getRange(1, 1, 2, 2).setValues([
+    ['status', 'message'],
+    ['RUNNING', message]
+  ]);
+  sheet.autoResizeColumns(1, 2);
+  SpreadsheetApp.flush();
 }
 
 function applyBulkTradingPolicyChange() {
@@ -943,14 +972,18 @@ function reviseFixedPriceItem_(requestXml, props) {
   return responseText;
 }
 
-function getAllTradingActiveItems_(props) {
+function getAllTradingActiveItems_(props, maxItems) {
   const items = [];
   const entriesPerPage = 200;
   let pageNumber = 1;
   while (true) {
     const page = getTradingActiveListPage_(pageNumber, entriesPerPage, props);
-    items.push.apply(items, page.items);
-    if (pageNumber >= page.totalPages || page.items.length === 0) {
+    page.items.forEach(item => {
+      if (!maxItems || items.length < maxItems) {
+        items.push(item);
+      }
+    });
+    if ((maxItems && items.length >= maxItems) || pageNumber >= page.totalPages || page.items.length === 0) {
       break;
     }
     pageNumber++;
