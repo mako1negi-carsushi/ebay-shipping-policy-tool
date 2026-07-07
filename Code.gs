@@ -60,11 +60,29 @@ function showEbayOAuthUrl() {
     '&response_type=code' +
     '&scope=' + encodeURIComponent(scope);
 
+  writeOAuthUrlToSheet_(url, props);
   SpreadsheetApp.getUi().alert(
-    'このURLをブラウザで開き、eBayにログインして許可してください。\n\n' +
-    '許可後に移動したURL内の code= 以降をコピーします。\n\n' +
-    url
+    'OAuthシートにeBay認証URLを書き出しました。\n\n' +
+    'OAuthシートのB2セルを開いて、https://auth.ebay.com から始まるURLをブラウザで開いてください。\n\n' +
+    '許可後に移動したURL内の code= 付きURL全体をコピーします。'
   );
+}
+
+function writeOAuthUrlToSheet_(url, props) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('OAuth') || ss.insertSheet('OAuth');
+  sheet.clear();
+  sheet.getRange(1, 1, 1, 2).setValues([['item', 'value']]);
+  sheet.getRange(2, 1, 5, 2).setValues([
+    ['authorizationUrl', url],
+    ['urlMustStartWith', getWebAuthBase_(props) + '/oauth2/authorize'],
+    ['environment', props.ENVIRONMENT],
+    ['clientId', props.EBAY_CLIENT_ID],
+    ['runame', props.EBAY_RUNAME]
+  ]);
+  sheet.getRange('B2').setFormula('=HYPERLINK("' + url.replace(/"/g, '""') + '","Open eBay authorization URL")');
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 2);
 }
 
 function saveRefreshTokenFromAuthCode() {
