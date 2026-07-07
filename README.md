@@ -124,14 +124,16 @@ Trading API版はInventory APIへ移行しない代わりに、`ReviseFixedPrice
 
 現在Aの配送ポリシーで登録されている既存出品を、Inventory APIへ移行せず、Trading APIで指定Bの配送ポリシーへ変更できます。同時に、商品価格と関税率から商品ごとの送料上書き額を計算します。
 
-1. `eBay出品 > Trading一括: 対象出品を検索`
+1. `eBay出品 > Trading一括: 新規検索を開始`
 2. 置換元のShippingProfileIDを入力します。
 3. 変更先のShippingProfileIDを入力します。
 4. 関税率を入力します。例: 10%なら `0.1`
-5. 最大検索件数を入力します。最初は `50` 推奨です。
+5. 1回あたりの最大検索件数を入力します。最初は `50` 推奨です。
 6. `BulkPolicyChange` シートに候補が作成されます。
-7. 更新したい行だけ `approve` をTRUEにします。
-8. `eBay出品 > Trading一括: approve=TRUEを更新`
+7. 検索が `PAUSED` の場合は `eBay出品 > Trading一括: 続きから検索` を繰り返します。
+8. 更新したい行だけ `approve` をTRUEにします。
+9. `eBay出品 > Trading一括: approve=TRUEを更新`
+10. 最大更新件数を入力します。最初は `20` から `50` 推奨です。残りがあれば同じメニューを再実行します。
 
 送料上書き額は `priceUSD * dutyRate` で計算されます。`overrideShippingCostUSD` に直接金額を入れた行は、その金額が優先されます。
 
