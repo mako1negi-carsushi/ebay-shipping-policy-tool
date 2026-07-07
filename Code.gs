@@ -1562,6 +1562,14 @@ function asMoneyString_(value, label) {
   return roundMoney_(asNumber_(value, label));
 }
 
+function asInteger_(value, label) {
+  const number = asNumber_(value, label);
+  if (Math.floor(number) !== number) {
+    throw new Error(label + ' must be an integer: ' + value);
+  }
+  return number;
+}
+
 function roundMoney_(value) {
   return (Math.round(Number(value) * 100) / 100).toFixed(2);
 }
