@@ -51,21 +51,29 @@ function onOpen() {
 }
 
 function showEbayOAuthUrl() {
-  const props = getOAuthConfig_();
-  const scope = getEbayScopes_().join(' ');
-  const url =
-    getWebAuthBase_(props) +
-    '/oauth2/authorize?client_id=' + encodeURIComponent(props.EBAY_CLIENT_ID) +
-    '&redirect_uri=' + encodeURIComponent(props.EBAY_RUNAME) +
-    '&response_type=code' +
-    '&scope=' + encodeURIComponent(scope);
+  try {
+    const props = getOAuthConfig_();
+    const scope = getEbayScopes_().join(' ');
+    const url =
+      getWebAuthBase_(props) +
+      '/oauth2/authorize?client_id=' + encodeURIComponent(props.EBAY_CLIENT_ID) +
+      '&redirect_uri=' + encodeURIComponent(props.EBAY_RUNAME) +
+      '&response_type=code' +
+      '&scope=' + encodeURIComponent(scope);
 
-  writeOAuthUrlToSheet_(url, props);
-  SpreadsheetApp.getUi().alert(
-    'OAuthシートにeBay認証URLを書き出しました。\n\n' +
-    'OAuthシートのB2セルを開いて、https://auth.ebay.com から始まるURLをブラウザで開いてください。\n\n' +
-    '許可後に移動したURL内の code= 付きURL全体をコピーします。'
-  );
+    writeOAuthUrlToSheet_(url, props);
+    SpreadsheetApp.getUi().alert(
+      'OAuthシートにeBay認証URLを書き出しました。\n\n' +
+      'OAuthシートのB2セルを開いて、https://auth.ebay.com から始まるURLをブラウザで開いてください。\n\n' +
+      '許可後に移動したURL内の code= 付きURL全体をコピーします。'
+    );
+  } catch (err) {
+    writeOAuthErrorToSheet_(err);
+    SpreadsheetApp.getUi().alert(
+      'OAuthシートに設定エラーを書き出しました。\n\n' +
+      'OAuthシートの内容を確認し、スクリプトプロパティを修正してください。'
+    );
+  }
 }
 
 function writeOAuthUrlToSheet_(url, props) {
@@ -81,6 +89,25 @@ function writeOAuthUrlToSheet_(url, props) {
     ['runame', props.EBAY_RUNAME]
   ]);
   sheet.getRange('B2').setFormula('=HYPERLINK("' + url.replace(/"/g, '""') + '","Open eBay authorization URL")');
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 2);
+}
+
+function writeOAuthErrorToSheet_(err) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('OAuth') || ss.insertSheet('OAuth');
+  sheet.clear();
+  sheet.getRange(1, 1, 1, 2).setValues([['item', 'value']]);
+  sheet.getRange(2, 1, 8, 2).setValues([
+    ['status', 'ERROR'],
+    ['message', String(err && err.message ? err.message : err)],
+    ['requiredProperty', 'EBAY_CLIENT_ID'],
+    ['requiredProperty', 'EBAY_CLIENT_SECRET'],
+    ['requiredProperty', 'EBAY_RUNAME'],
+    ['optionalProperty', 'ENVIRONMENT=PRODUCTION'],
+    ['note', 'Apps Script > プロジェクトの設定 > スクリプト プロパティを確認してください。'],
+    ['runameExample', 'Makoto_Araki-MakotoAr-rakura-acrjgqi']
+  ]);
   sheet.setFrozenRows(1);
   sheet.autoResizeColumns(1, 2);
 }
