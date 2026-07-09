@@ -4,6 +4,14 @@ const WEBAPP_LOGIN_CODE_PREFIX = 'LOGIN_CODE_';
 const WEBAPP_SESSION_TTL_SECONDS = 604800; // ログイン有効期間: 7日間
 const WEBAPP_LOGIN_CODE_TTL_SECONDS = 600;
 
+// 診断用: 実行すると「今日あと何通メールを送れるか」をログに表示する
+// 残り約100 = 無料アカウント / 残り約1500 = Google Workspace(有料枠)
+function checkMailQuota() {
+  const remaining = MailApp.getRemainingDailyQuota();
+  Logger.log('本日の残りメール送信可能数: ' + remaining + ' 通');
+  Logger.log(remaining > 200 ? '→ Google Workspace(有料枠)の上限で動いています' : '→ 無料アカウントの上限(100通/日)で動いています');
+}
+
 function doGet() {
   return HtmlService
     .createHtmlOutputFromFile('Index')
