@@ -205,7 +205,6 @@
           <button data-tab="policiesTab" onclick="showTab('policiesTab')">ポリシー一覧</button>
           <button data-tab="bulkTab" onclick="showTab('bulkTab')">一括変更</button>
           <button data-tab="singleTab" onclick="showTab('singleTab')">個別更新</button>
-          <button data-tab="skuTab" onclick="showTab('skuTab')">SKU更新・移行</button>
           <button class="secondary" onclick="logout()" style="margin-left:auto;">ログアウト</button>
         </div>
 
@@ -330,52 +329,6 @@
           </details>
         </section>
 
-        <!-- SKU更新・移行 (Inventory API) -->
-        <section id="skuTab" class="tab hidden">
-          <h2>SKU指定の送料更新(Inventory API)</h2>
-          <p class="muted">SKU(商品管理番号)で出品を探して送料を更新します。SKUで見つからない出品は、下の「移行」を先に行ってください。</p>
-          <div class="row">
-            <div>
-              <label for="invSku">SKU</label>
-              <input id="invSku" oninput="resetInvPreview()">
-            </div>
-            <div>
-              <label for="invOfferId">offer ID(わかる場合のみ。通常は空欄)</label>
-              <input id="invOfferId" oninput="resetInvPreview()">
-            </div>
-          </div>
-          <div class="row3">
-            <div>
-              <label for="invToPolicy">変更先の配送ポリシー(変えない場合は「変更しない」)</label>
-              <select id="invToPolicy" onchange="resetInvPreview()"></select>
-            </div>
-            <div>
-              <label for="invOverride">送料を直接指定USD(空欄なら自動計算)</label>
-              <input id="invOverride" inputmode="decimal" oninput="resetInvPreview()">
-            </div>
-            <div>
-              <label for="invDutyRate">関税率(自動計算に使用。例 0.1)</label>
-              <input id="invDutyRate" inputmode="decimal" oninput="resetInvPreview()">
-            </div>
-          </div>
-          <div class="actions">
-            <button onclick="invPreview()">① 内容を確認(まだ更新されません)</button>
-            <button id="invUpdateBtn" class="danger" onclick="invUpdate()" disabled>② この内容で更新する</button>
-          </div>
-          <div id="invPreviewBox" class="previewbox hidden"></div>
-          <details id="invJsonDetails" class="hidden">
-            <summary>送信内容の詳細(JSON)</summary>
-            <pre id="invJson"></pre>
-          </details>
-
-          <h2 style="margin-top:28px;">Inventory APIへの移行</h2>
-          <p class="muted">SKUで出品が見つからない場合、Item IDを指定してInventory API方式へ移行できます。<strong>必ず最初は1件だけで試してください。</strong>移行は元に戻せません。</p>
-          <label for="migrateListingId">移行するItem ID(出品番号)</label>
-          <input id="migrateListingId">
-          <div class="actions">
-            <button class="danger" onclick="migrateListing()">移行を実行する</button>
-          </div>
-        </section>
       </div>
 
       <div id="status" class="status">準備できています。</div>
@@ -471,7 +424,7 @@
         document.querySelectorAll('#tabButtons button[data-tab]').forEach(el => {
           el.classList.toggle('active', el.getAttribute('data-tab') === tabId);
         });
-        if ((tabId === 'bulkTab' || tabId === 'singleTab' || tabId === 'skuTab' || tabId === 'policiesTab') && !policies) {
+        if ((tabId === 'bulkTab' || tabId === 'singleTab' || tabId === 'policiesTab') && !policies) {
           fetchPolicies(false);
         }
       }
@@ -549,7 +502,6 @@
         fillSelect('bulkFromPolicy', fulfillment, '選択してください');
         fillSelect('bulkToPolicy', fulfillment, '選択してください');
         fillSelect('singleToPolicy', fulfillment, '変更しない(今のポリシーのまま)');
-        fillSelect('invToPolicy', fulfillment, '変更しない(今のポリシーのまま)');
       }
 
       function fillSelect(id, list, emptyLabel) {
@@ -787,74 +739,6 @@
           const result = await callServer('webTradingUpdate', sessionToken, readSingleForm());
           document.getElementById('singleUpdateBtn').disabled = true;
           setStatus('更新しました。Item ID: ' + result.itemId + ' / 新しい送料: $' + result.computedShipping);
-        } catch (error) {
-          setStatus(errText(error), true);
-        }
-      }
-
-      // ---- SKU更新・移行 ----
-
-      function resetInvPreview() {
-        document.getElementById('invUpdateBtn').disabled = true;
-      }
-
-      function readInvForm() {
-        return {
-          sku: document.getElementById('invSku').value.trim(),
-          offerId: document.getElementById('invOfferId').value.trim(),
-          fulfillmentPolicyId: document.getElementById('invToPolicy').value,
-          overrideShippingCostUSD: document.getElementById('invOverride').value.trim(),
-          dutyRate: document.getElementById('invDutyRate').value.trim(),
-          priceUSD: ''
-        };
-      }
-
-      async function invPreview() {
-        try {
-          setStatus('出品情報を取得しています...');
-          const result = await callServer('webInventoryPreview', sessionToken, readInvForm());
-          const box = document.getElementById('invPreviewBox');
-          box.classList.remove('hidden');
-          box.textContent =
-            'SKU: ' + result.sku +
-            '\noffer ID: ' + result.offerId +
-            '\nItem ID: ' + (result.listingId || '(なし)') +
-            '\n現在価格: $' + result.priceUSD +
-            '\n現在の配送ポリシーID: ' + result.currentPolicyId +
-            '\n変更後の配送ポリシーID: ' + result.targetPolicyId +
-            '\n新しい送料: $' + result.computedShipping;
-          document.getElementById('invJson').textContent = result.payloadPreview;
-          document.getElementById('invJsonDetails').classList.remove('hidden');
-          document.getElementById('invUpdateBtn').disabled = false;
-          setStatus('内容を確認しました。問題なければ「② この内容で更新する」を押してください。');
-        } catch (error) {
-          setStatus(errText(error), true);
-        }
-      }
-
-      async function invUpdate() {
-        if (!window.confirm('この出品を更新します。よろしいですか?')) return;
-        try {
-          setStatus('更新しています...');
-          const result = await callServer('webInventoryUpdate', sessionToken, readInvForm());
-          document.getElementById('invUpdateBtn').disabled = true;
-          setStatus('更新しました。offer ID: ' + result.offerId + ' / 新しい送料: $' + result.computedShipping);
-        } catch (error) {
-          setStatus(errText(error), true);
-        }
-      }
-
-      async function migrateListing() {
-        const listingId = document.getElementById('migrateListingId').value.trim();
-        if (!listingId) {
-          setStatus('移行するItem IDを入力してください。', true);
-          return;
-        }
-        if (!window.confirm('Item ID ' + listingId + ' をInventory APIへ移行します。\nこの操作は元に戻せません。よろしいですか?')) return;
-        try {
-          setStatus('移行しています...');
-          const result = await callServer('webMigrateListing', sessionToken, listingId);
-          setStatus('移行しました。offer ID: ' + result.offerId + (result.sku ? ' / SKU: ' + result.sku : '') + '\nこの後は上の「SKU指定の送料更新」で更新できます。');
         } catch (error) {
           setStatus(errText(error), true);
         }
