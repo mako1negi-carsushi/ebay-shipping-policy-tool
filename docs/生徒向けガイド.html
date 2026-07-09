@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eBay送料ポリシー変更ツール 使い方ガイド</title>
+<style>
+  body {
+    font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+    color: #17202a;
+    background: #fff;
+    margin: 0;
+    line-height: 1.9;
+  }
+  main {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1 {
+    font-size: 26px;
+    border-bottom: 3px solid #0f6cbd;
+    padding-bottom: 10px;
+  }
+  h2 {
+    font-size: 20px;
+    background: #eef6ff;
+    border-left: 6px solid #0f6cbd;
+    padding: 8px 12px;
+    margin-top: 40px;
+  }
+  h3 {
+    font-size: 16px;
+    margin-top: 24px;
+  }
+  ol li, ul li {
+    margin: 6px 0;
+  }
+  .box {
+    border: 1px solid #c8cfda;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    background: #fafbfc;
+  }
+  .warn {
+    border-left: 6px solid #c0392b;
+    background: #fdf3f2;
+  }
+  .tip {
+    border-left: 6px solid #1e7b34;
+    background: #f2faf4;
+  }
+  .kbd {
+    display: inline-block;
+    border: 1px solid #c8cfda;
+    border-radius: 4px;
+    background: #f0f3f7;
+    padding: 0 6px;
+    font-weight: 700;
+    font-size: 90%;
+  }
+  .btn {
+    display: inline-block;
+    background: #0f6cbd;
+    color: #fff;
+    border-radius: 4px;
+    padding: 0 8px;
+    font-weight: 700;
+    font-size: 90%;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid #c8cfda;
+    padding: 6px 10px;
+    text-align: left;
+  }
+  th {
+    background: #eef6ff;
+  }
+  @media print {
+    h2 { page-break-after: avoid; }
+    .box { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>eBay送料ポリシー変更ツール 使い方ガイド</h1>
+
+<p>このツールは、あなたのeBay出品の<strong>送料(Shipping cost)と配送ポリシー(Business policy)をまとめて変更できる</strong>Webツールです。インストールは不要で、ブラウザ(ChromeやEdge)だけで使えます。</p>
+
+<div class="box warn">
+<strong>⚠ はじめに必ずお読みください</strong>
+<ul>
+<li>このツールは<strong>eBayの本番の出品を実際に変更します</strong>。最初は必ず<strong>テスト用の出品1件</strong>で試してから、まとめて使ってください。</li>
+<li>ツールのURLは<strong>他の人に教えないでください</strong>(登録メンバーしかログインできませんが、念のため)。</li>
+</ul>
+</div>
+
+<h2>1. ログインする</h2>
+<ol>
+<li>先生から案内された<strong>ツールのURL</strong>をブラウザで開きます。</li>
+<li>「登録メールアドレス」に、<strong>先生に登録してもらった自分のメールアドレス</strong>を入力し、<span class="btn">確認コードを送信</span>を押します。</li>
+<li>メールに<strong>6桁の数字</strong>が届きます(1〜2分かかることがあります。迷惑メールフォルダも確認)。</li>
+<li>その数字を「確認コード」欄に入力して<span class="btn">ログイン</span>を押します。</li>
+</ol>
+<div class="box tip">
+<strong>💡 ポイント</strong>: 一度ログインすると<strong>7日間はログインしたまま</strong>使えます(同じパソコン・同じブラウザの場合)。7日を過ぎたら、また確認コードでログインしてください。
+</div>
+
+<h2>2. 自分のeBayアカウントを接続する(初回のみ)</h2>
+<p>最初の1回だけ、あなたのeBayアカウントとツールをつなぐ作業が必要です。</p>
+<ol>
+<li>「<strong>eBay接続</strong>」タブを開きます。</li>
+<li>Marketplace(出品先)を確認します。通常はそのままでOKです(先生の指示に従ってください)。</li>
+<li><span class="btn">① eBay認証URLを作成</span>を押すと、下の欄に長いURLが表示されます。</li>
+<li>そのURLをコピーして、<strong>新しいタブで開きます</strong>。eBayのログイン画面が出るので、<strong>自分のeBayアカウント</strong>でログインし、<strong>Agree(同意)</strong>を押します。</li>
+<li>同意した後に表示されたページの<strong>アドレス欄のURL全体</strong>をコピーします(<span class="kbd">Ctrl+L</span> → <span class="kbd">Ctrl+C</span> が簡単です)。</li>
+<li>ツールの画面に戻り、「② 許可後に表示されたページのURLをそのまま貼り付け」の欄に貼り付けて(<span class="kbd">Ctrl+V</span>)、<span class="btn">③ 接続を完了する</span>を押します。</li>
+<li>「eBay接続: 接続済み」と表示されたら完了です。</li>
+</ol>
+
+<h2>3. ポリシー一覧を確認する</h2>
+<ol>
+<li>「<strong>ポリシー一覧</strong>」タブを開き、<span class="btn">一覧を取得・更新</span>を押します。</li>
+<li>あなたのeBayに登録されている配送・支払い・返品ポリシーの一覧が表示されます。</li>
+<li>数が多いときは「絞り込み検索」に名前の一部を入力すると探せます。</li>
+</ol>
+
+<h2>4. 配送ポリシーをまとめて変更する(一括変更)</h2>
+<p>「今Aという配送ポリシーを使っている出品」を全部探して、Bというポリシーに変更し、同時に送料の上書き額を設定します。</p>
+
+<h3>手順</h3>
+<ol>
+<li>「<strong>一括変更</strong>」タブを開きます。</li>
+<li>「置換元」に<strong>今使っている配送ポリシー</strong>を入力します。名前の一部(例: FedEx)を打つと候補が出るので、クリックで選びます。</li>
+<li>「変更先」に<strong>変更したい配送ポリシー</strong>を同じように入力します。</li>
+<li>送料の計算方法を入力します。<br>
+<strong>新しい送料 = 商品価格 × 関税率 + 固定追加額</strong>
+<table>
+<tr><th>やりたいこと</th><th>関税率</th><th>固定追加額</th></tr>
+<tr><td>価格の10%を送料にする</td><td>0.1</td><td>(空欄)</td></tr>
+<tr><td>全品一律 $25 にする</td><td>(空欄)</td><td>25</td></tr>
+<tr><td>価格の10% + $5 にする</td><td>0.1</td><td>5</td></tr>
+</table>
+</li>
+<li><span class="btn">① 対象出品を検索</span>を押します。検索は自動で進み、見つかった出品が表に増えていきます。<strong>検索中はこのタブを閉じずに待ってください</strong>(出品数が多いと数分〜数十分かかります)。</li>
+<li>検索が終わったら、表の内容(特に「新しい送料」の列)を確認し、<strong>変更したい行にチェック</strong>を入れます。左上のチェックボックスで全選択もできます。</li>
+<li><span class="btn">② チェックした出品を更新</span>を押します。確認メッセージが出るのでOKを押すと、10件ずつ自動で更新されます。</li>
+<li>各行の「状態」列が<strong>更新済み</strong>になれば成功です。「エラー」と出た行は、その内容を先生に伝えてください。</li>
+</ol>
+
+<div class="box warn">
+<strong>⚠ 初めて使うときは</strong>: いきなり全件にチェックせず、まず<strong>2〜3件だけ</strong>チェックして更新し、eBayの出品ページで送料とポリシーが正しく変わったことを確認してから、残りを実行してください。
+</div>
+
+<h2>5. 1件だけ変更する(個別更新)</h2>
+<ol>
+<li>「<strong>個別更新</strong>」タブを開きます。</li>
+<li>変更したい出品の<strong>Item ID(出品番号)</strong>を入力します。Item IDはeBayの出品ページのURLや、Seller Hubの出品一覧で確認できます。</li>
+<li>必要に応じて、変更先ポリシー・送料の直接指定・関税率・固定追加額を入力します(全部空欄なら何も変わりません)。</li>
+<li><span class="btn">① 内容を確認</span>を押すと、商品名・現在価格・変更後の送料などが表示されます。<strong>この時点ではまだ何も変更されていません。</strong></li>
+<li>内容が正しければ<span class="btn">② この内容で更新する</span>を押します。</li>
+</ol>
+
+<h2>6. よくある質問・困ったとき</h2>
+
+<h3>Q. 確認コードのメールが届かない</h3>
+<p>迷惑メールフォルダを確認してください。それでも無い場合は、登録されているメールアドレスと違うアドレスを入力している可能性があります。先生に登録アドレスを確認してください。</p>
+
+<h3>Q. 「このメールアドレスは利用許可されていません」と出る</h3>
+<p>まだ名簿に登録されていないか、アドレスの打ち間違いです。先生に連絡してください。</p>
+
+<h3>Q. 「eBayが未接続です」「認証に失敗しました」と出る</h3>
+<p>「eBay接続」タブで、もう一度「2. 自分のeBayアカウントを接続する」の手順をやり直してください(何度やり直しても大丈夫です)。</p>
+
+<h3>Q. 一括検索の途中でブラウザを閉じてしまった</h3>
+<p>検索は最初からやり直しになりますが、eBay側には何の影響もありません。もう一度「① 対象出品を検索」を押してください。<strong>すでに「更新済み」になった出品はちゃんと変更されています。</strong></p>
+
+<h3>Q. エラーが出た/様子がおかしい</h3>
+<p>画面に表示された<strong>エラーメッセージの全文</strong>(スクリーンショットが確実)を先生に送ってください。</p>
+
+<div class="box tip">
+<strong>💡 スマホでも使えますが</strong>、一括変更は件数が多く時間がかかるため、<strong>パソコンでの利用をおすすめします</strong>。
+</div>
+
+</main>
+</body>
+</html>
