@@ -269,14 +269,18 @@
               <select id="bulkToPolicy"></select>
             </div>
           </div>
-          <div class="row">
+          <div class="row3">
             <div>
-              <label for="bulkDutyRate">関税率(例: 10%なら 0.1)</label>
-              <input id="bulkDutyRate" inputmode="decimal" placeholder="0.1">
+              <label for="bulkDutyRate">関税率(例: 10%なら 0.1。使わない場合は空欄)</label>
+              <input id="bulkDutyRate" inputmode="decimal" placeholder="0.1" oninput="recomputeBulkShipping()">
+            </div>
+            <div>
+              <label for="bulkAddFixed">固定追加額USD(使わない場合は空欄)</label>
+              <input id="bulkAddFixed" inputmode="decimal" placeholder="5.00" oninput="recomputeBulkShipping()">
             </div>
             <div>
               <label>&nbsp;</label>
-              <p class="muted">送料上書き額 = 商品価格 × 関税率(1件ずつ自動計算)</p>
+              <p class="muted">新しい送料 = 商品価格 × 関税率 + 固定追加額(1件ずつ自動計算)。どちらか一方だけでも使えます。</p>
             </div>
           </div>
           <div class="actions">
@@ -304,18 +308,28 @@
           <p class="muted">eBayの出品番号(Item ID)を指定して、1件ずつ送料上書きとポリシー変更を行います。必ず「① 内容を確認」をしてから「② 更新」してください。</p>
           <label for="singleListingId">Item ID(出品番号)</label>
           <input id="singleListingId" oninput="resetSinglePreview()">
-          <div class="row3">
+          <div class="row">
             <div>
               <label for="singleToPolicy">変更先の配送ポリシー(変えない場合は「変更しない」)</label>
               <select id="singleToPolicy" onchange="resetSinglePreview()"></select>
             </div>
             <div>
-              <label for="singleOverride">送料を直接指定USD(空欄なら自動計算)</label>
+              <label for="singleOverride">送料を直接指定USD(指定すると下の自動計算より優先)</label>
               <input id="singleOverride" inputmode="decimal" oninput="resetSinglePreview()">
             </div>
+          </div>
+          <div class="row3">
             <div>
-              <label for="singleDutyRate">関税率(自動計算に使用。例 0.1)</label>
+              <label for="singleDutyRate">関税率(例 0.1。使わない場合は空欄)</label>
               <input id="singleDutyRate" inputmode="decimal" oninput="resetSinglePreview()">
+            </div>
+            <div>
+              <label for="singleAddFixed">固定追加額USD(使わない場合は空欄)</label>
+              <input id="singleAddFixed" inputmode="decimal" oninput="resetSinglePreview()">
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <p class="muted">自動計算: 送料 = 価格 × 関税率 + 固定追加額</p>
             </div>
           </div>
           <div class="actions">
@@ -535,6 +549,7 @@
         const fromPolicyId = document.getElementById('bulkFromPolicy').value;
         const toPolicyId = document.getElementById('bulkToPolicy').value;
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
+        const addFixed = document.getElementById('bulkAddFixed').value.trim();
         if (!fromPolicyId || !toPolicyId) {
           setStatus('置換元と変更先の配送ポリシーを選択してください。', true);
           return;
@@ -543,8 +558,16 @@
           setStatus('置換元と変更先が同じです。別のポリシーを選択してください。', true);
           return;
         }
-        if (dutyRate === '' || !isFinite(Number(dutyRate))) {
-          setStatus('関税率を数値で入力してください。例: 10%なら 0.1', true);
+        if (dutyRate === '' && addFixed === '') {
+          setStatus('関税率か固定追加額のどちらか(または両方)を入力してください。', true);
+          return;
+        }
+        if (dutyRate !== '' && !isFinite(Number(dutyRate))) {
+          setStatus('関税率は数値で入力してください。例: 10%なら 0.1', true);
+          return;
+        }
+        if (addFixed !== '' && !isFinite(Number(addFixed))) {
+          setStatus('固定追加額は数値で入力してください。例: 5.00', true);
           return;
         }
 
@@ -615,16 +638,29 @@
           '<td>' + escapeHtml(match.sku) + '</td>' +
           '<td style="white-space:normal;max-width:280px;">' + escapeHtml(match.title) + '</td>' +
           '<td>' + escapeHtml(match.priceUSD) + '</td>' +
-          '<td>' + computeBulkShipping(match.priceUSD) + '</td>' +
+          '<td class="shipCell">' + computeBulkShipping(match.priceUSD) + '</td>' +
           '<td class="statusCell">待機中</td>';
         tbody.appendChild(tr);
       }
 
       function computeBulkShipping(priceUSD) {
-        const dutyRate = Number(document.getElementById('bulkDutyRate').value.trim());
+        const dutyRateText = document.getElementById('bulkDutyRate').value.trim();
+        const addFixedText = document.getElementById('bulkAddFixed').value.trim();
+        const dutyRate = dutyRateText === '' ? 0 : Number(dutyRateText);
+        const addFixed = addFixedText === '' ? 0 : Number(addFixedText);
         const price = Number(priceUSD);
-        if (!isFinite(dutyRate) || !isFinite(price)) return '';
-        return (Math.round(price * dutyRate * 100) / 100).toFixed(2);
+        if (!isFinite(dutyRate) || !isFinite(addFixed) || !isFinite(price)) return '';
+        return (Math.round((price * dutyRate + addFixed) * 100) / 100).toFixed(2);
+      }
+
+      // 関税率・固定追加額を変えたら、表の「新しい送料」列を計算し直す
+      function recomputeBulkShipping() {
+        document.querySelectorAll('#bulkTable tbody tr').forEach(tr => {
+          const cell = tr.querySelector('.shipCell');
+          if (cell) {
+            cell.textContent = computeBulkShipping(tr.getAttribute('data-price'));
+          }
+        });
       }
 
       function toggleAllBulk(checked) {
@@ -636,6 +672,7 @@
       async function applyBulk() {
         const toPolicyId = document.getElementById('bulkToPolicy').value;
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
+        const addFixed = document.getElementById('bulkAddFixed').value.trim();
         if (!toPolicyId) {
           setStatus('変更先の配送ポリシーを選択してください。', true);
           return;
@@ -660,6 +697,7 @@
             const result = await callServer('webBulkApply', sessionToken, {
               toPolicyId: toPolicyId,
               dutyRate: dutyRate,
+              addFixedUSD: addFixed,
               items: batch.map(tr => ({
                 itemId: tr.getAttribute('data-itemid'),
                 priceUSD: tr.getAttribute('data-price'),
@@ -705,6 +743,7 @@
           fulfillmentPolicyId: document.getElementById('singleToPolicy').value,
           overrideShippingCostUSD: document.getElementById('singleOverride').value.trim(),
           dutyRate: document.getElementById('singleDutyRate').value.trim(),
+          addFixedUSD: document.getElementById('singleAddFixed').value.trim(),
           priceUSD: ''
         };
       }

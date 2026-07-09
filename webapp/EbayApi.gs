@@ -396,6 +396,7 @@ function waExtractTradingErrors_(root, ns, fallbackText) {
 
 // ---- 共通ヘルパー ----
 
+// 送料 = 直接指定があればその金額。なければ 商品価格 × 関税率 + 固定追加額
 function waGetShippingOverride_(row) {
   if (row.overrideShippingCostUSD !== '' && typeof row.overrideShippingCostUSD !== 'undefined' && row.overrideShippingCostUSD !== null) {
     return waRoundMoney_(waAsNumber_(row.overrideShippingCostUSD, '送料'));
@@ -404,7 +405,10 @@ function waGetShippingOverride_(row) {
   const dutyRate = (row.dutyRate === '' || typeof row.dutyRate === 'undefined' || row.dutyRate === null)
     ? 0
     : waAsNumber_(row.dutyRate, '関税率');
-  return waRoundMoney_(price * dutyRate);
+  const addFixed = (row.addFixedUSD === '' || typeof row.addFixedUSD === 'undefined' || row.addFixedUSD === null)
+    ? 0
+    : waAsNumber_(row.addFixedUSD, '固定追加額');
+  return waRoundMoney_(price * dutyRate + addFixed);
 }
 
 function waAsNumber_(value, label) {

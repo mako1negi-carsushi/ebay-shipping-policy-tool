@@ -367,6 +367,7 @@ function normalizeTradingForm_(form) {
     fulfillmentPolicyId: String(form.fulfillmentPolicyId || '').trim(),
     priceUSD: form.priceUSD === '' || typeof form.priceUSD === 'undefined' || form.priceUSD === null ? '' : form.priceUSD,
     dutyRate: form.dutyRate === '' || typeof form.dutyRate === 'undefined' || form.dutyRate === null ? '' : form.dutyRate,
+    addFixedUSD: form.addFixedUSD === '' || typeof form.addFixedUSD === 'undefined' || form.addFixedUSD === null ? '' : form.addFixedUSD,
     overrideShippingCostUSD: form.overrideShippingCostUSD === '' || typeof form.overrideShippingCostUSD === 'undefined' || form.overrideShippingCostUSD === null ? '' : form.overrideShippingCostUSD
   };
 }
@@ -528,6 +529,7 @@ function webBulkApply(token, request) {
   }
   const items = (request.items || []).slice(0, WEB_BULK_APPLY_MAX_PER_CALL);
   const dutyRate = request.dutyRate === '' || typeof request.dutyRate === 'undefined' || request.dutyRate === null ? '' : request.dutyRate;
+  const addFixedUSD = request.addFixedUSD === '' || typeof request.addFixedUSD === 'undefined' || request.addFixedUSD === null ? '' : request.addFixedUSD;
 
   const results = items.map(entry => {
     const itemId = String(entry.itemId || '').trim();
@@ -537,6 +539,7 @@ function webBulkApply(token, request) {
         fulfillmentPolicyId: toPolicyId,
         priceUSD: entry.priceUSD === '' || typeof entry.priceUSD === 'undefined' || entry.priceUSD === null ? '' : entry.priceUSD,
         dutyRate: dutyRate,
+        addFixedUSD: addFixedUSD,
         overrideShippingCostUSD: entry.overrideShippingCostUSD === '' || typeof entry.overrideShippingCostUSD === 'undefined' || entry.overrideShippingCostUSD === null ? '' : entry.overrideShippingCostUSD
       };
       const item = waGetTradingItem_(row.listingId, props);
