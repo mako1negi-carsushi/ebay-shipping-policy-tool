@@ -58,15 +58,14 @@ function webVerifyLoginCode(email, code) {
 function webGetDashboard(token) {
   const email = requireWebAppSession_(token);
   const user = getWebAppUserByEmail_(email);
+  const ebayApp = getWebAppEbayAppConfig_(false);
   return {
     email: email,
     displayName: user.displayName || '',
     status: user.status || '',
     expiresAt: user.expiresAt || '',
     ebay: {
-      clientIdSet: Boolean(user.ebayClientId),
-      clientSecretSet: Boolean(user.ebayClientSecret),
-      runameSet: Boolean(user.ebayRuname),
+      appConfigured: Boolean(ebayApp.clientId && ebayApp.clientSecret && ebayApp.runame),
       refreshTokenSet: Boolean(user.ebayRefreshToken),
       marketplaceId: user.marketplaceId || 'EBAY_MOTORS',
       tradingSiteId: user.tradingSiteId || '100'
@@ -76,12 +75,8 @@ function webGetDashboard(token) {
 
 function webSaveEbayDeveloperConfig(token, config) {
   const email = requireWebAppSession_(token);
-  const user = getWebAppUserByEmail_(email);
   config = config || {};
   updateWebAppUser_(email, {
-    ebayClientId: String(config.ebayClientId || user.ebayClientId || '').trim(),
-    ebayClientSecret: String(config.ebayClientSecret || user.ebayClientSecret || '').trim(),
-    ebayRuname: String(config.ebayRuname || user.ebayRuname || '').trim(),
     marketplaceId: String(config.marketplaceId || 'EBAY_MOTORS').trim(),
     currency: String(config.currency || 'USD').trim(),
     contentLanguage: String(config.contentLanguage || 'en-US').trim(),
@@ -93,16 +88,13 @@ function webSaveEbayDeveloperConfig(token, config) {
 }
 
 function webGetEbayOAuthUrl(token) {
-  const email = requireWebAppSession_(token);
-  const user = getWebAppUserByEmail_(email);
-  if (!user.ebayClientId || !user.ebayRuname) {
-    throw new Error('Client ID と RuName を先に保存してください。');
-  }
-  const authBase = getWebAppWebAuthBase_(user);
+  requireWebAppSession_(token);
+  const ebayApp = getWebAppEbayAppConfig_();
+  const authBase = getWebAppWebAuthBase_(ebayApp);
   const url =
     authBase +
-    '/oauth2/authorize?client_id=' + encodeURIComponent(user.ebayClientId) +
-    '&redirect_uri=' + encodeURIComponent(user.ebayRuname) +
+    '/oauth2/authorize?client_id=' + encodeURIComponent(ebayApp.clientId) +
+    '&redirect_uri=' + encodeURIComponent(ebayApp.runame) +
     '&response_type=code' +
     '&scope=' + encodeURIComponent(getWebAppEbayScopes_().join(' '));
   return { ok: true, url: url };
@@ -110,18 +102,15 @@ function webGetEbayOAuthUrl(token) {
 
 function webSaveEbayRefreshToken(token, redirectedUrlOrCode) {
   const email = requireWebAppSession_(token);
-  const user = getWebAppUserByEmail_(email);
-  if (!user.ebayClientId || !user.ebayClientSecret || !user.ebayRuname) {
-    throw new Error('Client ID / Client Secret / RuName を先に保存してください。');
-  }
+  const ebayApp = getWebAppEbayAppConfig_();
 
   const authCode = extractWebAppAuthCode_(redirectedUrlOrCode);
   if (!authCode) {
     throw new Error('code= を含むURL、またはcode本体を入力してください。');
   }
 
-  const credentials = Utilities.base64Encode(user.ebayClientId + ':' + user.ebayClientSecret);
-  const response = UrlFetchApp.fetch(getWebAppAuthBase_(user) + '/identity/v1/oauth2/token', {
+  const credentials = Utilities.base64Encode(ebayApp.clientId + ':' + ebayApp.clientSecret);
+  const response = UrlFetchApp.fetch(getWebAppAuthBase_(ebayApp) + '/identity/v1/oauth2/token', {
     method: 'post',
     headers: {
       Authorization: 'Basic ' + credentials,
@@ -130,7 +119,7 @@ function webSaveEbayRefreshToken(token, redirectedUrlOrCode) {
     payload: {
       grant_type: 'authorization_code',
       code: authCode,
-      redirect_uri: user.ebayRuname
+      redirect_uri: ebayApp.runame
     },
     muteHttpExceptions: true
   });
@@ -157,9 +146,6 @@ function getWebAppUserHeaders_() {
     'status',
     'expiresAt',
     'displayName',
-    'ebayClientId',
-    'ebayClientSecret',
-    'ebayRuname',
     'ebayRefreshToken',
     'marketplaceId',
     'currency',
@@ -271,14 +257,44 @@ function getWebAppEbayScopes_() {
   ];
 }
 
-function getWebAppAuthBase_(user) {
-  return String(user.environment || '').toUpperCase() === 'SANDBOX'
+function getWebAppEbayAppConfig_(required) {
+  required = required !== false;
+  const store = PropertiesService.getScriptProperties();
+  const config = {
+    environment: store.getProperty('ENVIRONMENT') || 'PRODUCTION',
+    clientId: store.getProperty('EBAY_CLIENT_ID'),
+    clientSecret: store.getProperty('EBAY_CLIENT_SECRET'),
+    runame: store.getProperty('EBAY_RUNAME')
+  };
+  [
+    'clientId',
+    'clientSecret',
+    'runame'
+  ].forEach(key => {
+    if (required && !config[key]) {
+      throw new Error('Script Propertiesに ' + getWebAppEbayPropertyName_(key) + ' を設定してください。');
+    }
+  });
+  return config;
+}
+
+function getWebAppEbayPropertyName_(key) {
+  const names = {
+    clientId: 'EBAY_CLIENT_ID',
+    clientSecret: 'EBAY_CLIENT_SECRET',
+    runame: 'EBAY_RUNAME'
+  };
+  return names[key] || key;
+}
+
+function getWebAppAuthBase_(config) {
+  return String(config.environment || '').toUpperCase() === 'SANDBOX'
     ? 'https://api.sandbox.ebay.com'
     : 'https://api.ebay.com';
 }
 
-function getWebAppWebAuthBase_(user) {
-  return String(user.environment || '').toUpperCase() === 'SANDBOX'
+function getWebAppWebAuthBase_(config) {
+  return String(config.environment || '').toUpperCase() === 'SANDBOX'
     ? 'https://auth.sandbox.ebay.com'
     : 'https://auth.ebay.com';
 }

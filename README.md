@@ -68,7 +68,7 @@ OAuth後に自動保存される値:
 
 より強く制限する場合は、eBay APIを実行する処理を管理者側Web Appに置き、配布先には操作用シートだけ渡す構成にしてください。
 
-Web App化する場合は `webapp/` フォルダを使います。利用者ごとにeBay Developer情報とRefresh Tokenを登録する前提です。
+Web App化する場合は `webapp/` フォルダを使います。eBay Developer情報は管理者側で持ち、利用者ごとにRefresh Tokenを保存する前提です。
 
 ## OAuth
 

@@ -103,7 +103,7 @@
   </head>
   <body>
     <main>
-      <h1>eBay Shipping Policy Tool</h1>
+      <h1>eBay送料ポリシー変更ツール</h1>
 
       <section id="loginSection">
         <h2>ログイン</h2>
@@ -121,20 +121,8 @@
       </section>
 
       <section id="appSection" class="hidden">
-        <h2>eBay API情報</h2>
-        <p class="muted">この情報は管理者側Web AppのUsersシートに、登録メールごとに保存されます。</p>
-        <div class="row">
-          <div>
-            <label for="clientId">Client ID</label>
-            <input id="clientId">
-          </div>
-          <div>
-            <label for="clientSecret">Client Secret</label>
-            <input id="clientSecret" type="password">
-          </div>
-        </div>
-        <label for="runame">RuName</label>
-        <input id="runame">
+        <h2>eBay接続設定</h2>
+        <p class="muted">eBay Developer情報は管理者側で管理します。利用者は自分のeBayアカウントを認証するだけです。</p>
         <div class="row">
           <div>
             <label for="marketplaceId">Marketplace</label>
@@ -149,7 +137,7 @@
           </div>
         </div>
         <div class="actions">
-          <button onclick="saveDeveloperConfig()">API情報を保存</button>
+          <button onclick="saveDeveloperConfig()">接続設定を保存</button>
           <button class="secondary" onclick="getOAuthUrl()">eBay認証URLを作成</button>
         </div>
 
@@ -216,7 +204,7 @@
           document.getElementById('tradingSiteId').value = dashboard.ebay.tradingSiteId || '100';
           setStatus(
             'ログイン中: ' + dashboard.email +
-            '\nClient ID: ' + (dashboard.ebay.clientIdSet ? '保存済み' : '未設定') +
+            '\n管理者側eBayアプリ: ' + (dashboard.ebay.appConfigured ? '設定済み' : '未設定') +
             '\nRefresh Token: ' + (dashboard.ebay.refreshTokenSet ? '保存済み' : '未設定')
           );
         } catch (error) {
@@ -229,16 +217,13 @@
       async function saveDeveloperConfig() {
         try {
           await callServer('webSaveEbayDeveloperConfig', sessionToken, {
-            ebayClientId: document.getElementById('clientId').value,
-            ebayClientSecret: document.getElementById('clientSecret').value,
-            ebayRuname: document.getElementById('runame').value,
             marketplaceId: document.getElementById('marketplaceId').value,
             currency: 'USD',
             contentLanguage: 'en-US',
             tradingSiteId: document.getElementById('tradingSiteId').value,
             tradingApiVersion: '1455'
           });
-          setStatus('API情報を保存しました。');
+          setStatus('接続設定を保存しました。');
         } catch (error) {
           setStatus(error.message || String(error));
         }
