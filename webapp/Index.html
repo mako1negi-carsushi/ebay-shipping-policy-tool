@@ -1,0 +1,272 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+        color: #17202a;
+        background: #f6f7f9;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 32px 20px 56px;
+      }
+      h1 {
+        margin: 0 0 18px;
+        font-size: 26px;
+      }
+      h2 {
+        margin: 28px 0 12px;
+        font-size: 18px;
+      }
+      section {
+        background: #fff;
+        border: 1px solid #d9dee7;
+        border-radius: 8px;
+        padding: 18px;
+        margin-top: 16px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        margin: 14px 0 6px;
+      }
+      input, textarea, select {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 40px;
+        border: 1px solid #c8cfda;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font: inherit;
+        background: #fff;
+      }
+      textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+      button {
+        min-height: 40px;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 14px;
+        font-weight: 700;
+        color: #fff;
+        background: #0f6cbd;
+        cursor: pointer;
+      }
+      button.secondary {
+        color: #17202a;
+        background: #e7ebf1;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .status {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: #eef6ff;
+        color: #0c416f;
+        white-space: pre-wrap;
+      }
+      .hidden {
+        display: none;
+      }
+      .muted {
+        color: #657184;
+        font-size: 13px;
+      }
+      @media (max-width: 680px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>eBay Shipping Policy Tool</h1>
+
+      <section id="loginSection">
+        <h2>ログイン</h2>
+        <label for="email">登録メールアドレス</label>
+        <input id="email" type="email" autocomplete="email">
+        <div class="actions">
+          <button onclick="requestCode()">確認コードを送信</button>
+        </div>
+
+        <label for="code">確認コード</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code">
+        <div class="actions">
+          <button onclick="verifyCode()">ログイン</button>
+        </div>
+      </section>
+
+      <section id="appSection" class="hidden">
+        <h2>eBay API情報</h2>
+        <p class="muted">この情報は管理者側Web AppのUsersシートに、登録メールごとに保存されます。</p>
+        <div class="row">
+          <div>
+            <label for="clientId">Client ID</label>
+            <input id="clientId">
+          </div>
+          <div>
+            <label for="clientSecret">Client Secret</label>
+            <input id="clientSecret" type="password">
+          </div>
+        </div>
+        <label for="runame">RuName</label>
+        <input id="runame">
+        <div class="row">
+          <div>
+            <label for="marketplaceId">Marketplace</label>
+            <select id="marketplaceId">
+              <option value="EBAY_MOTORS">EBAY_MOTORS</option>
+              <option value="EBAY_US">EBAY_US</option>
+            </select>
+          </div>
+          <div>
+            <label for="tradingSiteId">Trading Site ID</label>
+            <input id="tradingSiteId" value="100">
+          </div>
+        </div>
+        <div class="actions">
+          <button onclick="saveDeveloperConfig()">API情報を保存</button>
+          <button class="secondary" onclick="getOAuthUrl()">eBay認証URLを作成</button>
+        </div>
+
+        <label for="oauthUrl">eBay認証URL</label>
+        <textarea id="oauthUrl" readonly></textarea>
+
+        <label for="redirectedUrl">許可後のURLまたはcode</label>
+        <textarea id="redirectedUrl"></textarea>
+        <div class="actions">
+          <button onclick="saveRefreshToken()">Refresh Tokenを保存</button>
+        </div>
+      </section>
+
+      <div id="status" class="status">準備できています。</div>
+    </main>
+
+    <script>
+      let sessionToken = localStorage.getItem('ebayToolSessionToken') || '';
+
+      function setStatus(message) {
+        document.getElementById('status').textContent = message;
+      }
+
+      function callServer(name, ...args) {
+        setStatus('処理中...');
+        return new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(error => reject(error))
+            [name](...args);
+        });
+      }
+
+      async function requestCode() {
+        try {
+          await callServer('webRequestLoginCode', document.getElementById('email').value);
+          setStatus('確認コードを送信しました。メールを確認してください。');
+        } catch (error) {
+          setStatus(error.message || String(error));
+        }
+      }
+
+      async function verifyCode() {
+        try {
+          const result = await callServer(
+            'webVerifyLoginCode',
+            document.getElementById('email').value,
+            document.getElementById('code').value
+          );
+          sessionToken = result.token;
+          localStorage.setItem('ebayToolSessionToken', sessionToken);
+          await loadDashboard();
+        } catch (error) {
+          setStatus(error.message || String(error));
+        }
+      }
+
+      async function loadDashboard() {
+        try {
+          const dashboard = await callServer('webGetDashboard', sessionToken);
+          document.getElementById('loginSection').classList.add('hidden');
+          document.getElementById('appSection').classList.remove('hidden');
+          document.getElementById('marketplaceId').value = dashboard.ebay.marketplaceId || 'EBAY_MOTORS';
+          document.getElementById('tradingSiteId').value = dashboard.ebay.tradingSiteId || '100';
+          setStatus(
+            'ログイン中: ' + dashboard.email +
+            '\nClient ID: ' + (dashboard.ebay.clientIdSet ? '保存済み' : '未設定') +
+            '\nRefresh Token: ' + (dashboard.ebay.refreshTokenSet ? '保存済み' : '未設定')
+          );
+        } catch (error) {
+          localStorage.removeItem('ebayToolSessionToken');
+          sessionToken = '';
+          setStatus('ログインしてください。');
+        }
+      }
+
+      async function saveDeveloperConfig() {
+        try {
+          await callServer('webSaveEbayDeveloperConfig', sessionToken, {
+            ebayClientId: document.getElementById('clientId').value,
+            ebayClientSecret: document.getElementById('clientSecret').value,
+            ebayRuname: document.getElementById('runame').value,
+            marketplaceId: document.getElementById('marketplaceId').value,
+            currency: 'USD',
+            contentLanguage: 'en-US',
+            tradingSiteId: document.getElementById('tradingSiteId').value,
+            tradingApiVersion: '1455'
+          });
+          setStatus('API情報を保存しました。');
+        } catch (error) {
+          setStatus(error.message || String(error));
+        }
+      }
+
+      async function getOAuthUrl() {
+        try {
+          const result = await callServer('webGetEbayOAuthUrl', sessionToken);
+          document.getElementById('oauthUrl').value = result.url;
+          setStatus('eBay認証URLを作成しました。URLを開いて許可してください。');
+        } catch (error) {
+          setStatus(error.message || String(error));
+        }
+      }
+
+      async function saveRefreshToken() {
+        try {
+          await callServer('webSaveEbayRefreshToken', sessionToken, document.getElementById('redirectedUrl').value);
+          await loadDashboard();
+          setStatus('Refresh Tokenを保存しました。');
+        } catch (error) {
+          setStatus(error.message || String(error));
+        }
+      }
+
+      if (sessionToken) {
+        loadDashboard();
+      }
+    </script>
+  </body>
+</html>
