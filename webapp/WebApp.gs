@@ -308,3 +308,256 @@ function extractWebAppAuthCode_(value) {
 function normalizeWebAppEmail_(value) {
   return String(value || '').trim().toLowerCase();
 }
+
+// ==== ここから本体機能のエンドポイント(EbayApi.gs を使用) ====
+
+const WEB_BULK_CHUNK_TIME_LIMIT_MS = 40000;
+const WEB_BULK_APPLY_MAX_PER_CALL = 10;
+
+function webFetchPolicies(token) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  return waFetchAllPolicies_(props);
+}
+
+function webTradingPreview(token, form) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  const row = normalizeTradingForm_(form);
+  const item = waGetTradingItem_(row.listingId, props);
+  if (row.priceUSD === '' && item.price) {
+    row.priceUSD = waRoundMoney_(item.price);
+  }
+  const requestXml = waBuildReviseFixedPriceItemXml_(row, item, props);
+  return {
+    ok: true,
+    item: item,
+    priceUSD: row.priceUSD,
+    computedShipping: waGetShippingOverride_(row),
+    targetPolicyId: row.fulfillmentPolicyId || item.shippingProfileId,
+    requestXml: requestXml
+  };
+}
+
+function webTradingUpdate(token, form) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  const row = normalizeTradingForm_(form);
+  const item = waGetTradingItem_(row.listingId, props);
+  if (row.priceUSD === '' && item.price) {
+    row.priceUSD = waRoundMoney_(item.price);
+  }
+  const requestXml = waBuildReviseFixedPriceItemXml_(row, item, props);
+  waReviseFixedPriceItem_(requestXml, props);
+  return {
+    ok: true,
+    itemId: item.itemId,
+    computedShipping: waGetShippingOverride_(row)
+  };
+}
+
+function normalizeTradingForm_(form) {
+  form = form || {};
+  const listingId = String(form.listingId || '').trim();
+  if (!listingId) {
+    throw new Error('Item ID(出品番号)を入力してください。');
+  }
+  return {
+    listingId: listingId,
+    fulfillmentPolicyId: String(form.fulfillmentPolicyId || '').trim(),
+    priceUSD: form.priceUSD === '' || typeof form.priceUSD === 'undefined' || form.priceUSD === null ? '' : form.priceUSD,
+    dutyRate: form.dutyRate === '' || typeof form.dutyRate === 'undefined' || form.dutyRate === null ? '' : form.dutyRate,
+    overrideShippingCostUSD: form.overrideShippingCostUSD === '' || typeof form.overrideShippingCostUSD === 'undefined' || form.overrideShippingCostUSD === null ? '' : form.overrideShippingCostUSD
+  };
+}
+
+function webInventoryPreview(token, form) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  const row = normalizeInventoryForm_(form);
+  const offer = waGetExistingOfferForRow_(row, props);
+  if (row.priceUSD === '') {
+    row.priceUSD = waGetExistingOfferPrice_(offer);
+  }
+  const payload = waBuildExistingOfferUpdatePayload_(offer, row, props);
+  return {
+    ok: true,
+    offerId: String(offer.offerId || ''),
+    listingId: waGetListingIdFromOffer_(offer),
+    sku: String(offer.sku || row.sku || ''),
+    priceUSD: row.priceUSD,
+    currentPolicyId: waGetFulfillmentPolicyIdFromOffer_(offer),
+    targetPolicyId: row.fulfillmentPolicyId || waGetFulfillmentPolicyIdFromOffer_(offer),
+    computedShipping: waGetShippingOverride_(row),
+    payloadPreview: JSON.stringify(payload, null, 2)
+  };
+}
+
+function webInventoryUpdate(token, form) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  const row = normalizeInventoryForm_(form);
+  const offer = waGetExistingOfferForRow_(row, props);
+  const offerId = String(offer.offerId || '');
+  if (!offerId) {
+    throw new Error('offer IDを取得できませんでした。');
+  }
+  if (row.priceUSD === '') {
+    row.priceUSD = waGetExistingOfferPrice_(offer);
+  }
+  const payload = waBuildExistingOfferUpdatePayload_(offer, row, props);
+  waUpdateOffer_(offerId, payload, props);
+  return {
+    ok: true,
+    offerId: offerId,
+    computedShipping: waGetShippingOverride_(row)
+  };
+}
+
+function normalizeInventoryForm_(form) {
+  form = form || {};
+  return {
+    sku: String(form.sku || '').trim(),
+    offerId: String(form.offerId || '').trim(),
+    fulfillmentPolicyId: String(form.fulfillmentPolicyId || '').trim(),
+    priceUSD: form.priceUSD === '' || typeof form.priceUSD === 'undefined' || form.priceUSD === null ? '' : form.priceUSD,
+    dutyRate: form.dutyRate === '' || typeof form.dutyRate === 'undefined' || form.dutyRate === null ? '' : form.dutyRate,
+    overrideShippingCostUSD: form.overrideShippingCostUSD === '' || typeof form.overrideShippingCostUSD === 'undefined' || form.overrideShippingCostUSD === null ? '' : form.overrideShippingCostUSD
+  };
+}
+
+function webMigrateListing(token, listingId) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  listingId = String(listingId || '').trim();
+  if (!listingId) {
+    throw new Error('Item ID(出品番号)を入力してください。');
+  }
+  const response = waBulkMigrateListing_(listingId, props);
+  const result = waGetMigrationResult_(response, listingId);
+  if (result.errors && result.errors.length) {
+    throw new Error('移行に失敗しました: ' + JSON.stringify(result.errors));
+  }
+  const items = result.inventoryItems || [];
+  if (items.length === 0 || !items[0].offerId) {
+    throw new Error('移行結果にoffer IDがありません: ' + JSON.stringify(result));
+  }
+  return {
+    ok: true,
+    offerId: String(items[0].offerId),
+    sku: String(items[0].sku || '')
+  };
+}
+
+// 一括変更: 出品を少しずつ検索する(ブラウザから繰り返し呼ばれる)
+function webBulkSearchChunk(token, params) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  params = params || {};
+  const fromPolicyId = String(params.fromPolicyId || '').trim();
+  if (!fromPolicyId) {
+    throw new Error('置換元の配送ポリシーIDを入力してください。');
+  }
+
+  const startedAt = Date.now();
+  let pageNumber = Math.max(1, Number(params.pageNumber) || 1);
+  let itemIndex = Math.max(0, Number(params.itemIndex) || 0);
+  let totalPages = Number(params.totalPages) || 0;
+  let checked = 0;
+  const matches = [];
+  let done = false;
+
+  while (Date.now() - startedAt < WEB_BULK_CHUNK_TIME_LIMIT_MS) {
+    const page = waGetTradingActiveListPage_(pageNumber, 200, props);
+    totalPages = page.totalPages;
+    if (page.items.length === 0) {
+      done = true;
+      break;
+    }
+
+    let finishedPage = true;
+    for (let index = itemIndex; index < page.items.length; index++) {
+      if (Date.now() - startedAt >= WEB_BULK_CHUNK_TIME_LIMIT_MS) {
+        itemIndex = index;
+        finishedPage = false;
+        break;
+      }
+      const summary = page.items[index];
+      checked++;
+      const item = summary.shippingProfileId ? summary : waGetTradingItem_(summary.itemId, props);
+      if (String(item.shippingProfileId) !== fromPolicyId) {
+        continue;
+      }
+      matches.push({
+        itemId: String(item.itemId),
+        sku: String(item.sku || ''),
+        title: String(item.title || ''),
+        priceUSD: item.price ? waRoundMoney_(item.price) : ''
+      });
+    }
+
+    if (!finishedPage) {
+      break;
+    }
+    pageNumber++;
+    itemIndex = 0;
+    if (pageNumber > totalPages) {
+      done = true;
+      break;
+    }
+  }
+
+  return {
+    matches: matches,
+    checked: checked,
+    pageNumber: pageNumber,
+    itemIndex: itemIndex,
+    totalPages: totalPages,
+    done: done
+  };
+}
+
+// 一括変更: 承認された出品をまとめて更新する(1回の呼び出しで最大10件)
+function webBulkApply(token, request) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  request = request || {};
+  const toPolicyId = String(request.toPolicyId || '').trim();
+  if (!toPolicyId) {
+    throw new Error('変更先の配送ポリシーIDを入力してください。');
+  }
+  const items = (request.items || []).slice(0, WEB_BULK_APPLY_MAX_PER_CALL);
+  const dutyRate = request.dutyRate === '' || typeof request.dutyRate === 'undefined' || request.dutyRate === null ? '' : request.dutyRate;
+
+  const results = items.map(entry => {
+    const itemId = String(entry.itemId || '').trim();
+    try {
+      const row = {
+        listingId: itemId,
+        fulfillmentPolicyId: toPolicyId,
+        priceUSD: entry.priceUSD === '' || typeof entry.priceUSD === 'undefined' || entry.priceUSD === null ? '' : entry.priceUSD,
+        dutyRate: dutyRate,
+        overrideShippingCostUSD: entry.overrideShippingCostUSD === '' || typeof entry.overrideShippingCostUSD === 'undefined' || entry.overrideShippingCostUSD === null ? '' : entry.overrideShippingCostUSD
+      };
+      const item = waGetTradingItem_(row.listingId, props);
+      if (row.priceUSD === '' && item.price) {
+        row.priceUSD = waRoundMoney_(item.price);
+      }
+      const requestXml = waBuildReviseFixedPriceItemXml_(row, item, props);
+      waReviseFixedPriceItem_(requestXml, props);
+      return {
+        itemId: itemId,
+        ok: true,
+        computedShipping: waGetShippingOverride_(row)
+      };
+    } catch (err) {
+      return {
+        itemId: itemId,
+        ok: false,
+        error: String(err && err.message ? err.message : err)
+      };
+    }
+  });
+
+  return { results: results };
+}

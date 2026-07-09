@@ -7,7 +7,7 @@
     <style>
       :root {
         color-scheme: light;
-        font-family: Arial, sans-serif;
+        font-family: "Hiragino Sans", "Yu Gothic", Arial, sans-serif;
         color: #17202a;
         background: #f6f7f9;
       }
@@ -15,17 +15,17 @@
         margin: 0;
       }
       main {
-        max-width: 920px;
+        max-width: 1040px;
         margin: 0 auto;
-        padding: 32px 20px 56px;
+        padding: 28px 20px 64px;
       }
       h1 {
-        margin: 0 0 18px;
-        font-size: 26px;
+        margin: 0 0 6px;
+        font-size: 24px;
       }
       h2 {
-        margin: 28px 0 12px;
-        font-size: 18px;
+        margin: 0 0 12px;
+        font-size: 17px;
       }
       section {
         background: #fff;
@@ -68,9 +68,21 @@
         color: #17202a;
         background: #e7ebf1;
       }
+      button.danger {
+        background: #c0392b;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
       .row {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .row3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 14px;
       }
       .actions {
@@ -86,6 +98,11 @@
         background: #eef6ff;
         color: #0c416f;
         white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .status.error {
+        background: #fdecea;
+        color: #8a1f14;
       }
       .hidden {
         display: none;
@@ -94,8 +111,68 @@
         color: #657184;
         font-size: 13px;
       }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .tabs button {
+        background: #e7ebf1;
+        color: #17202a;
+      }
+      .tabs button.active {
+        background: #0f6cbd;
+        color: #fff;
+      }
+      .tablewrap {
+        overflow-x: auto;
+        margin-top: 12px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      th, td {
+        border: 1px solid #d9dee7;
+        padding: 6px 8px;
+        text-align: left;
+        white-space: nowrap;
+      }
+      th {
+        background: #f0f3f7;
+      }
+      td.ok {
+        color: #1e7b34;
+        font-weight: 700;
+      }
+      td.ng {
+        color: #8a1f14;
+        font-weight: 700;
+      }
+      .previewbox {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid #d9dee7;
+        border-radius: 6px;
+        background: #fafbfc;
+        font-size: 13px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      details {
+        margin-top: 10px;
+      }
+      details pre {
+        overflow-x: auto;
+        background: #f0f3f7;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
       @media (max-width: 680px) {
-        .row {
+        .row, .row3 {
           grid-template-columns: 1fr;
         }
       }
@@ -104,7 +181,9 @@
   <body>
     <main>
       <h1>eBay送料ポリシー変更ツール</h1>
+      <p class="muted">送料の上書きと配送ポリシーの変更を、画面から安全に行えます。</p>
 
+      <!-- ログイン -->
       <section id="loginSection">
         <h2>ログイン</h2>
         <label for="email">登録メールアドレス</label>
@@ -112,57 +191,216 @@
         <div class="actions">
           <button onclick="requestCode()">確認コードを送信</button>
         </div>
-
-        <label for="code">確認コード</label>
+        <label for="code">確認コード(メールに届いた6桁の数字)</label>
         <input id="code" inputmode="numeric" autocomplete="one-time-code">
         <div class="actions">
           <button onclick="verifyCode()">ログイン</button>
         </div>
       </section>
 
-      <section id="appSection" class="hidden">
-        <h2>eBay接続設定</h2>
-        <p class="muted">eBay Developer情報は管理者側で管理します。利用者は自分のeBayアカウントを認証するだけです。</p>
-        <div class="row">
-          <div>
-            <label for="marketplaceId">Marketplace</label>
-            <select id="marketplaceId">
-              <option value="EBAY_MOTORS">EBAY_MOTORS</option>
-              <option value="EBAY_US">EBAY_US</option>
-            </select>
-          </div>
-          <div>
-            <label for="tradingSiteId">Trading Site ID</label>
-            <input id="tradingSiteId" value="100">
-          </div>
-        </div>
-        <div class="actions">
-          <button onclick="saveDeveloperConfig()">接続設定を保存</button>
-          <button class="secondary" onclick="getOAuthUrl()">eBay認証URLを作成</button>
+      <!-- ログイン後 -->
+      <div id="appArea" class="hidden">
+        <div class="tabs" id="tabButtons">
+          <button data-tab="connectTab" class="active" onclick="showTab('connectTab')">eBay接続</button>
+          <button data-tab="policiesTab" onclick="showTab('policiesTab')">ポリシー一覧</button>
+          <button data-tab="bulkTab" onclick="showTab('bulkTab')">一括変更</button>
+          <button data-tab="singleTab" onclick="showTab('singleTab')">個別更新</button>
+          <button data-tab="skuTab" onclick="showTab('skuTab')">SKU更新・移行</button>
+          <button class="secondary" onclick="logout()" style="margin-left:auto;">ログアウト</button>
         </div>
 
-        <label for="oauthUrl">eBay認証URL</label>
-        <textarea id="oauthUrl" readonly></textarea>
+        <!-- eBay接続 -->
+        <section id="connectTab" class="tab">
+          <h2>eBay接続設定</h2>
+          <p class="muted">最初に1回だけ、自分のeBayアカウントをこのツールに接続します。</p>
+          <div class="row">
+            <div>
+              <label for="marketplaceId">Marketplace(出品先)</label>
+              <select id="marketplaceId">
+                <option value="EBAY_US">EBAY_US(eBay米国)</option>
+                <option value="EBAY_MOTORS">EBAY_MOTORS(eBayモーターズ)</option>
+              </select>
+            </div>
+            <div>
+              <label for="tradingSiteId">Trading Site ID(通常は自動でOK)</label>
+              <input id="tradingSiteId" placeholder="空欄でOK">
+            </div>
+          </div>
+          <div class="actions">
+            <button onclick="saveDeveloperConfig()">接続設定を保存</button>
+            <button class="secondary" onclick="getOAuthUrl()">① eBay認証URLを作成</button>
+          </div>
+          <label for="oauthUrl">eBay認証URL(これを開いてeBayにログイン→許可)</label>
+          <textarea id="oauthUrl" readonly></textarea>
+          <label for="redirectedUrl">② 許可後に表示されたページのURLをそのまま貼り付け</label>
+          <textarea id="redirectedUrl"></textarea>
+          <div class="actions">
+            <button onclick="saveRefreshToken()">③ 接続を完了する</button>
+          </div>
+        </section>
 
-        <label for="redirectedUrl">許可後のURLまたはcode</label>
-        <textarea id="redirectedUrl"></textarea>
-        <div class="actions">
-          <button onclick="saveRefreshToken()">Refresh Tokenを保存</button>
-        </div>
-      </section>
+        <!-- ポリシー一覧 -->
+        <section id="policiesTab" class="tab hidden">
+          <h2>ポリシーID一覧</h2>
+          <p class="muted">自分のeBayに登録されている配送・支払い・返品ポリシーの一覧です。一括変更や個別更新で使うIDをここで確認できます。</p>
+          <div class="actions">
+            <button onclick="fetchPolicies(true)">一覧を取得・更新</button>
+          </div>
+          <div class="tablewrap">
+            <table id="policiesTable">
+              <thead>
+                <tr><th>種類</th><th>ポリシー名</th><th>ポリシーID</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 一括変更 -->
+        <section id="bulkTab" class="tab hidden">
+          <h2>配送ポリシー一括変更</h2>
+          <p class="muted">「今Aの配送ポリシーを使っている出品」を全部探して、Bのポリシーに変更し、同時に送料上書き額(商品価格 × 関税率)を設定します。</p>
+          <div class="row">
+            <div>
+              <label for="bulkFromPolicy">置換元(今使っている)配送ポリシー</label>
+              <select id="bulkFromPolicy"></select>
+            </div>
+            <div>
+              <label for="bulkToPolicy">変更先の配送ポリシー</label>
+              <select id="bulkToPolicy"></select>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="bulkDutyRate">関税率(例: 10%なら 0.1)</label>
+              <input id="bulkDutyRate" inputmode="decimal" placeholder="0.1">
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <p class="muted">送料上書き額 = 商品価格 × 関税率(1件ずつ自動計算)</p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="bulkSearchBtn" onclick="startBulkSearch()">① 対象出品を検索</button>
+            <button id="bulkStopBtn" class="secondary" onclick="stopBulkSearch()" disabled>検索を一時停止</button>
+            <button id="bulkApplyBtn" class="danger" onclick="applyBulk()" disabled>② チェックした出品を更新</button>
+          </div>
+          <div id="bulkProgress" class="status hidden"></div>
+          <div class="tablewrap">
+            <table id="bulkTable">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="bulkCheckAll" onclick="toggleAllBulk(this.checked)" style="width:auto;min-height:auto;"></th>
+                  <th>Item ID</th><th>SKU</th><th>商品名</th><th>価格USD</th><th>新しい送料USD</th><th>状態</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 個別更新 (Trading API / Item ID) -->
+        <section id="singleTab" class="tab hidden">
+          <h2>個別の送料・ポリシー更新(Item ID指定)</h2>
+          <p class="muted">eBayの出品番号(Item ID)を指定して、1件ずつ送料上書きとポリシー変更を行います。必ず「① 内容を確認」をしてから「② 更新」してください。</p>
+          <label for="singleListingId">Item ID(出品番号)</label>
+          <input id="singleListingId" oninput="resetSinglePreview()">
+          <div class="row3">
+            <div>
+              <label for="singleToPolicy">変更先の配送ポリシー(変えない場合は「変更しない」)</label>
+              <select id="singleToPolicy" onchange="resetSinglePreview()"></select>
+            </div>
+            <div>
+              <label for="singleOverride">送料を直接指定USD(空欄なら自動計算)</label>
+              <input id="singleOverride" inputmode="decimal" oninput="resetSinglePreview()">
+            </div>
+            <div>
+              <label for="singleDutyRate">関税率(自動計算に使用。例 0.1)</label>
+              <input id="singleDutyRate" inputmode="decimal" oninput="resetSinglePreview()">
+            </div>
+          </div>
+          <div class="actions">
+            <button onclick="singlePreview()">① 内容を確認(まだ更新されません)</button>
+            <button id="singleUpdateBtn" class="danger" onclick="singleUpdate()" disabled>② この内容で更新する</button>
+          </div>
+          <div id="singlePreviewBox" class="previewbox hidden"></div>
+          <details id="singleXmlDetails" class="hidden">
+            <summary>送信内容の詳細(XML)</summary>
+            <pre id="singleXml"></pre>
+          </details>
+        </section>
+
+        <!-- SKU更新・移行 (Inventory API) -->
+        <section id="skuTab" class="tab hidden">
+          <h2>SKU指定の送料更新(Inventory API)</h2>
+          <p class="muted">SKU(商品管理番号)で出品を探して送料を更新します。SKUで見つからない出品は、下の「移行」を先に行ってください。</p>
+          <div class="row">
+            <div>
+              <label for="invSku">SKU</label>
+              <input id="invSku" oninput="resetInvPreview()">
+            </div>
+            <div>
+              <label for="invOfferId">offer ID(わかる場合のみ。通常は空欄)</label>
+              <input id="invOfferId" oninput="resetInvPreview()">
+            </div>
+          </div>
+          <div class="row3">
+            <div>
+              <label for="invToPolicy">変更先の配送ポリシー(変えない場合は「変更しない」)</label>
+              <select id="invToPolicy" onchange="resetInvPreview()"></select>
+            </div>
+            <div>
+              <label for="invOverride">送料を直接指定USD(空欄なら自動計算)</label>
+              <input id="invOverride" inputmode="decimal" oninput="resetInvPreview()">
+            </div>
+            <div>
+              <label for="invDutyRate">関税率(自動計算に使用。例 0.1)</label>
+              <input id="invDutyRate" inputmode="decimal" oninput="resetInvPreview()">
+            </div>
+          </div>
+          <div class="actions">
+            <button onclick="invPreview()">① 内容を確認(まだ更新されません)</button>
+            <button id="invUpdateBtn" class="danger" onclick="invUpdate()" disabled>② この内容で更新する</button>
+          </div>
+          <div id="invPreviewBox" class="previewbox hidden"></div>
+          <details id="invJsonDetails" class="hidden">
+            <summary>送信内容の詳細(JSON)</summary>
+            <pre id="invJson"></pre>
+          </details>
+
+          <h2 style="margin-top:28px;">Inventory APIへの移行</h2>
+          <p class="muted">SKUで出品が見つからない場合、Item IDを指定してInventory API方式へ移行できます。<strong>必ず最初は1件だけで試してください。</strong>移行は元に戻せません。</p>
+          <label for="migrateListingId">移行するItem ID(出品番号)</label>
+          <input id="migrateListingId">
+          <div class="actions">
+            <button class="danger" onclick="migrateListing()">移行を実行する</button>
+          </div>
+        </section>
+      </div>
 
       <div id="status" class="status">準備できています。</div>
     </main>
 
     <script>
       let sessionToken = localStorage.getItem('ebayToolSessionToken') || '';
+      let policies = null;
+      let bulkRunning = false;
+      let bulkCursor = null;
+      let bulkMatchCount = 0;
+      let bulkCheckedCount = 0;
 
-      function setStatus(message) {
-        document.getElementById('status').textContent = message;
+      function setStatus(message, isError) {
+        const el = document.getElementById('status');
+        el.textContent = message;
+        el.className = isError ? 'status error' : 'status';
+      }
+
+      function errText(error) {
+        const message = error && error.message ? error.message : String(error);
+        return message.replace(/^Error:\s*/, '');
       }
 
       function callServer(name, ...args) {
-        setStatus('処理中...');
         return new Promise((resolve, reject) => {
           google.script.run
             .withSuccessHandler(resolve)
@@ -171,17 +409,21 @@
         });
       }
 
+      // ---- ログイン ----
+
       async function requestCode() {
         try {
+          setStatus('確認コードを送信しています...');
           await callServer('webRequestLoginCode', document.getElementById('email').value);
-          setStatus('確認コードを送信しました。メールを確認してください。');
+          setStatus('確認コードを送信しました。メールを確認して6桁の数字を入力してください。');
         } catch (error) {
-          setStatus(error.message || String(error));
+          setStatus(errText(error), true);
         }
       }
 
       async function verifyCode() {
         try {
+          setStatus('ログインしています...');
           const result = await callServer(
             'webVerifyLoginCode',
             document.getElementById('email').value,
@@ -191,21 +433,28 @@
           localStorage.setItem('ebayToolSessionToken', sessionToken);
           await loadDashboard();
         } catch (error) {
-          setStatus(error.message || String(error));
+          setStatus(errText(error), true);
         }
+      }
+
+      function logout() {
+        localStorage.removeItem('ebayToolSessionToken');
+        sessionToken = '';
+        document.getElementById('appArea').classList.add('hidden');
+        document.getElementById('loginSection').classList.remove('hidden');
+        setStatus('ログアウトしました。');
       }
 
       async function loadDashboard() {
         try {
           const dashboard = await callServer('webGetDashboard', sessionToken);
           document.getElementById('loginSection').classList.add('hidden');
-          document.getElementById('appSection').classList.remove('hidden');
-          document.getElementById('marketplaceId').value = dashboard.ebay.marketplaceId || 'EBAY_MOTORS';
-          document.getElementById('tradingSiteId').value = dashboard.ebay.tradingSiteId || '100';
+          document.getElementById('appArea').classList.remove('hidden');
+          document.getElementById('marketplaceId').value = dashboard.ebay.marketplaceId || 'EBAY_US';
+          document.getElementById('tradingSiteId').value = dashboard.ebay.tradingSiteId || '';
           setStatus(
             'ログイン中: ' + dashboard.email +
-            '\n管理者側eBayアプリ: ' + (dashboard.ebay.appConfigured ? '設定済み' : '未設定') +
-            '\nRefresh Token: ' + (dashboard.ebay.refreshTokenSet ? '保存済み' : '未設定')
+            '\neBay接続: ' + (dashboard.ebay.refreshTokenSet ? '接続済み' : '未接続(「eBay接続」タブで設定してください)')
           );
         } catch (error) {
           localStorage.removeItem('ebayToolSessionToken');
@@ -214,8 +463,24 @@
         }
       }
 
+      // ---- タブ ----
+
+      function showTab(tabId) {
+        document.querySelectorAll('.tab').forEach(el => el.classList.add('hidden'));
+        document.getElementById(tabId).classList.remove('hidden');
+        document.querySelectorAll('#tabButtons button[data-tab]').forEach(el => {
+          el.classList.toggle('active', el.getAttribute('data-tab') === tabId);
+        });
+        if ((tabId === 'bulkTab' || tabId === 'singleTab' || tabId === 'skuTab' || tabId === 'policiesTab') && !policies) {
+          fetchPolicies(false);
+        }
+      }
+
+      // ---- eBay接続 ----
+
       async function saveDeveloperConfig() {
         try {
+          setStatus('保存しています...');
           await callServer('webSaveEbayDeveloperConfig', sessionToken, {
             marketplaceId: document.getElementById('marketplaceId').value,
             currency: 'USD',
@@ -225,27 +490,373 @@
           });
           setStatus('接続設定を保存しました。');
         } catch (error) {
-          setStatus(error.message || String(error));
+          setStatus(errText(error), true);
         }
       }
 
       async function getOAuthUrl() {
         try {
+          setStatus('認証URLを作成しています...');
           const result = await callServer('webGetEbayOAuthUrl', sessionToken);
           document.getElementById('oauthUrl').value = result.url;
-          setStatus('eBay認証URLを作成しました。URLを開いて許可してください。');
+          setStatus('認証URLを作成しました。URLをコピーしてブラウザで開き、eBayにログインして許可してください。');
         } catch (error) {
-          setStatus(error.message || String(error));
+          setStatus(errText(error), true);
         }
       }
 
       async function saveRefreshToken() {
         try {
+          setStatus('接続しています...');
           await callServer('webSaveEbayRefreshToken', sessionToken, document.getElementById('redirectedUrl').value);
           await loadDashboard();
-          setStatus('Refresh Tokenを保存しました。');
+          setStatus('eBayとの接続が完了しました。');
         } catch (error) {
-          setStatus(error.message || String(error));
+          setStatus(errText(error), true);
+        }
+      }
+
+      // ---- ポリシー一覧 ----
+
+      async function fetchPolicies(showMessage) {
+        try {
+          if (showMessage) setStatus('ポリシー一覧を取得しています...');
+          policies = await callServer('webFetchPolicies', sessionToken);
+          renderPoliciesTable();
+          fillPolicySelects();
+          if (showMessage) setStatus('ポリシー一覧を取得しました。');
+        } catch (error) {
+          setStatus(errText(error), true);
+        }
+      }
+
+      function renderPoliciesTable() {
+        const tbody = document.querySelector('#policiesTable tbody');
+        tbody.innerHTML = '';
+        const typeNames = { FULFILLMENT: '配送', PAYMENT: '支払い', RETURN: '返品' };
+        [].concat(policies.fulfillment, policies.payment, policies.returns).forEach(policy => {
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + (typeNames[policy.type] || policy.type) + '</td>' +
+            '<td>' + escapeHtml(policy.name) + '</td>' +
+            '<td>' + escapeHtml(policy.policyId) + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+
+      function fillPolicySelects() {
+        const fulfillment = policies.fulfillment || [];
+        fillSelect('bulkFromPolicy', fulfillment, '選択してください');
+        fillSelect('bulkToPolicy', fulfillment, '選択してください');
+        fillSelect('singleToPolicy', fulfillment, '変更しない(今のポリシーのまま)');
+        fillSelect('invToPolicy', fulfillment, '変更しない(今のポリシーのまま)');
+      }
+
+      function fillSelect(id, list, emptyLabel) {
+        const select = document.getElementById(id);
+        const current = select.value;
+        select.innerHTML = '';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = emptyLabel;
+        select.appendChild(empty);
+        list.forEach(policy => {
+          const option = document.createElement('option');
+          option.value = policy.policyId;
+          option.textContent = policy.name + ' (' + policy.policyId + ')';
+          select.appendChild(option);
+        });
+        if (current) select.value = current;
+      }
+
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // ---- 一括変更 ----
+
+      async function startBulkSearch() {
+        const fromPolicyId = document.getElementById('bulkFromPolicy').value;
+        const toPolicyId = document.getElementById('bulkToPolicy').value;
+        const dutyRate = document.getElementById('bulkDutyRate').value.trim();
+        if (!fromPolicyId || !toPolicyId) {
+          setStatus('置換元と変更先の配送ポリシーを選択してください。', true);
+          return;
+        }
+        if (fromPolicyId === toPolicyId) {
+          setStatus('置換元と変更先が同じです。別のポリシーを選択してください。', true);
+          return;
+        }
+        if (dutyRate === '' || !isFinite(Number(dutyRate))) {
+          setStatus('関税率を数値で入力してください。例: 10%なら 0.1', true);
+          return;
+        }
+
+        document.querySelector('#bulkTable tbody').innerHTML = '';
+        document.getElementById('bulkCheckAll').checked = false;
+        bulkMatchCount = 0;
+        bulkCursor = { pageNumber: 1, itemIndex: 0, totalPages: 0, checked: 0 };
+        bulkRunning = true;
+        document.getElementById('bulkSearchBtn').disabled = true;
+        document.getElementById('bulkStopBtn').disabled = false;
+        document.getElementById('bulkApplyBtn').disabled = true;
+        await bulkSearchLoop(fromPolicyId);
+      }
+
+      async function bulkSearchLoop(fromPolicyId) {
+        const progress = document.getElementById('bulkProgress');
+        progress.classList.remove('hidden');
+        try {
+          while (bulkRunning) {
+            progress.textContent =
+              '検索中... ページ ' + bulkCursor.pageNumber + ' / ' + (bulkCursor.totalPages || '?') +
+              ' | チェック済み ' + bulkCursor.checked + '件 | 候補 ' + bulkMatchCount + '件';
+            const result = await callServer('webBulkSearchChunk', sessionToken, {
+              fromPolicyId: fromPolicyId,
+              pageNumber: bulkCursor.pageNumber,
+              itemIndex: bulkCursor.itemIndex,
+              totalPages: bulkCursor.totalPages
+            });
+            bulkCursor.pageNumber = result.pageNumber;
+            bulkCursor.itemIndex = result.itemIndex;
+            bulkCursor.totalPages = result.totalPages;
+            bulkCursor.checked += result.checked;
+            result.matches.forEach(addBulkRow);
+            if (result.done) {
+              bulkRunning = false;
+              progress.textContent =
+                '検索完了。チェック済み ' + bulkCursor.checked + '件 | 候補 ' + bulkMatchCount + '件。更新したい行にチェックを入れて「② チェックした出品を更新」を押してください。';
+              break;
+            }
+          }
+          if (bulkRunning === false && bulkCursor.totalPages && bulkCursor.pageNumber <= bulkCursor.totalPages) {
+            // 一時停止で抜けた場合
+          }
+        } catch (error) {
+          bulkRunning = false;
+          setStatus('検索中にエラーが発生しました: ' + errText(error), true);
+        }
+        document.getElementById('bulkSearchBtn').disabled = false;
+        document.getElementById('bulkStopBtn').disabled = true;
+        document.getElementById('bulkApplyBtn').disabled = bulkMatchCount === 0;
+      }
+
+      function stopBulkSearch() {
+        bulkRunning = false;
+        document.getElementById('bulkProgress').textContent =
+          '一時停止しました。候補 ' + bulkMatchCount + '件。このまま更新もできます(検索を最初からやり直すこともできます)。';
+      }
+
+      function addBulkRow(match) {
+        bulkMatchCount++;
+        const tbody = document.querySelector('#bulkTable tbody');
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-itemid', match.itemId);
+        tr.setAttribute('data-price', match.priceUSD);
+        tr.innerHTML =
+          '<td><input type="checkbox" class="bulkCheck" style="width:auto;min-height:auto;"></td>' +
+          '<td>' + escapeHtml(match.itemId) + '</td>' +
+          '<td>' + escapeHtml(match.sku) + '</td>' +
+          '<td style="white-space:normal;max-width:280px;">' + escapeHtml(match.title) + '</td>' +
+          '<td>' + escapeHtml(match.priceUSD) + '</td>' +
+          '<td>' + computeBulkShipping(match.priceUSD) + '</td>' +
+          '<td class="statusCell">待機中</td>';
+        tbody.appendChild(tr);
+      }
+
+      function computeBulkShipping(priceUSD) {
+        const dutyRate = Number(document.getElementById('bulkDutyRate').value.trim());
+        const price = Number(priceUSD);
+        if (!isFinite(dutyRate) || !isFinite(price)) return '';
+        return (Math.round(price * dutyRate * 100) / 100).toFixed(2);
+      }
+
+      function toggleAllBulk(checked) {
+        document.querySelectorAll('#bulkTable tbody .bulkCheck').forEach(box => {
+          box.checked = checked;
+        });
+      }
+
+      async function applyBulk() {
+        const toPolicyId = document.getElementById('bulkToPolicy').value;
+        const dutyRate = document.getElementById('bulkDutyRate').value.trim();
+        if (!toPolicyId) {
+          setStatus('変更先の配送ポリシーを選択してください。', true);
+          return;
+        }
+        const rows = Array.from(document.querySelectorAll('#bulkTable tbody tr'))
+          .filter(tr => tr.querySelector('.bulkCheck').checked && tr.querySelector('.statusCell').textContent !== '更新済み');
+        if (rows.length === 0) {
+          setStatus('更新する行にチェックを入れてください。', true);
+          return;
+        }
+        if (!window.confirm(rows.length + '件の出品を更新します。よろしいですか?\n(この操作はeBayの本番出品を変更します)')) {
+          return;
+        }
+
+        document.getElementById('bulkApplyBtn').disabled = true;
+        let doneCount = 0;
+        let errorCount = 0;
+        for (let start = 0; start < rows.length; start += 10) {
+          const batch = rows.slice(start, start + 10);
+          setStatus('更新中... ' + doneCount + ' / ' + rows.length + '件完了');
+          try {
+            const result = await callServer('webBulkApply', sessionToken, {
+              toPolicyId: toPolicyId,
+              dutyRate: dutyRate,
+              items: batch.map(tr => ({
+                itemId: tr.getAttribute('data-itemid'),
+                priceUSD: tr.getAttribute('data-price'),
+                overrideShippingCostUSD: ''
+              }))
+            });
+            result.results.forEach(entry => {
+              const tr = document.querySelector('#bulkTable tbody tr[data-itemid="' + entry.itemId + '"]');
+              if (!tr) return;
+              const cell = tr.querySelector('.statusCell');
+              if (entry.ok) {
+                cell.textContent = '更新済み';
+                cell.className = 'statusCell ok';
+                doneCount++;
+              } else {
+                cell.textContent = 'エラー: ' + entry.error;
+                cell.className = 'statusCell ng';
+                errorCount++;
+              }
+            });
+          } catch (error) {
+            batch.forEach(tr => {
+              const cell = tr.querySelector('.statusCell');
+              cell.textContent = 'エラー: ' + errText(error);
+              cell.className = 'statusCell ng';
+              errorCount++;
+            });
+          }
+        }
+        document.getElementById('bulkApplyBtn').disabled = false;
+        setStatus('一括更新が終わりました。成功 ' + doneCount + '件 / エラー ' + errorCount + '件。エラーは各行の「状態」列を確認してください。', errorCount > 0);
+      }
+
+      // ---- 個別更新 (Item ID) ----
+
+      function resetSinglePreview() {
+        document.getElementById('singleUpdateBtn').disabled = true;
+      }
+
+      function readSingleForm() {
+        return {
+          listingId: document.getElementById('singleListingId').value.trim(),
+          fulfillmentPolicyId: document.getElementById('singleToPolicy').value,
+          overrideShippingCostUSD: document.getElementById('singleOverride').value.trim(),
+          dutyRate: document.getElementById('singleDutyRate').value.trim(),
+          priceUSD: ''
+        };
+      }
+
+      async function singlePreview() {
+        try {
+          setStatus('出品情報を取得しています...');
+          const result = await callServer('webTradingPreview', sessionToken, readSingleForm());
+          const box = document.getElementById('singlePreviewBox');
+          box.classList.remove('hidden');
+          box.textContent =
+            '商品名: ' + (result.item.title || '(取得できず)') +
+            '\nItem ID: ' + result.item.itemId +
+            '\nSKU: ' + (result.item.sku || '(なし)') +
+            '\n現在価格: $' + result.priceUSD +
+            '\n現在の配送ポリシーID: ' + result.item.shippingProfileId +
+            '\n変更後の配送ポリシーID: ' + result.targetPolicyId +
+            '\n新しい送料: $' + result.computedShipping;
+          document.getElementById('singleXml').textContent = result.requestXml;
+          document.getElementById('singleXmlDetails').classList.remove('hidden');
+          document.getElementById('singleUpdateBtn').disabled = false;
+          setStatus('内容を確認しました。問題なければ「② この内容で更新する」を押してください。');
+        } catch (error) {
+          setStatus(errText(error), true);
+        }
+      }
+
+      async function singleUpdate() {
+        if (!window.confirm('この出品を更新します。よろしいですか?')) return;
+        try {
+          setStatus('更新しています...');
+          const result = await callServer('webTradingUpdate', sessionToken, readSingleForm());
+          document.getElementById('singleUpdateBtn').disabled = true;
+          setStatus('更新しました。Item ID: ' + result.itemId + ' / 新しい送料: $' + result.computedShipping);
+        } catch (error) {
+          setStatus(errText(error), true);
+        }
+      }
+
+      // ---- SKU更新・移行 ----
+
+      function resetInvPreview() {
+        document.getElementById('invUpdateBtn').disabled = true;
+      }
+
+      function readInvForm() {
+        return {
+          sku: document.getElementById('invSku').value.trim(),
+          offerId: document.getElementById('invOfferId').value.trim(),
+          fulfillmentPolicyId: document.getElementById('invToPolicy').value,
+          overrideShippingCostUSD: document.getElementById('invOverride').value.trim(),
+          dutyRate: document.getElementById('invDutyRate').value.trim(),
+          priceUSD: ''
+        };
+      }
+
+      async function invPreview() {
+        try {
+          setStatus('出品情報を取得しています...');
+          const result = await callServer('webInventoryPreview', sessionToken, readInvForm());
+          const box = document.getElementById('invPreviewBox');
+          box.classList.remove('hidden');
+          box.textContent =
+            'SKU: ' + result.sku +
+            '\noffer ID: ' + result.offerId +
+            '\nItem ID: ' + (result.listingId || '(なし)') +
+            '\n現在価格: $' + result.priceUSD +
+            '\n現在の配送ポリシーID: ' + result.currentPolicyId +
+            '\n変更後の配送ポリシーID: ' + result.targetPolicyId +
+            '\n新しい送料: $' + result.computedShipping;
+          document.getElementById('invJson').textContent = result.payloadPreview;
+          document.getElementById('invJsonDetails').classList.remove('hidden');
+          document.getElementById('invUpdateBtn').disabled = false;
+          setStatus('内容を確認しました。問題なければ「② この内容で更新する」を押してください。');
+        } catch (error) {
+          setStatus(errText(error), true);
+        }
+      }
+
+      async function invUpdate() {
+        if (!window.confirm('この出品を更新します。よろしいですか?')) return;
+        try {
+          setStatus('更新しています...');
+          const result = await callServer('webInventoryUpdate', sessionToken, readInvForm());
+          document.getElementById('invUpdateBtn').disabled = true;
+          setStatus('更新しました。offer ID: ' + result.offerId + ' / 新しい送料: $' + result.computedShipping);
+        } catch (error) {
+          setStatus(errText(error), true);
+        }
+      }
+
+      async function migrateListing() {
+        const listingId = document.getElementById('migrateListingId').value.trim();
+        if (!listingId) {
+          setStatus('移行するItem IDを入力してください。', true);
+          return;
+        }
+        if (!window.confirm('Item ID ' + listingId + ' をInventory APIへ移行します。\nこの操作は元に戻せません。よろしいですか?')) return;
+        try {
+          setStatus('移行しています...');
+          const result = await callServer('webMigrateListing', sessionToken, listingId);
+          setStatus('移行しました。offer ID: ' + result.offerId + (result.sku ? ' / SKU: ' + result.sku : '') + '\nこの後は上の「SKU指定の送料更新」で更新できます。');
+        } catch (error) {
+          setStatus(errText(error), true);
         }
       }
 
