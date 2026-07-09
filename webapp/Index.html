@@ -245,6 +245,8 @@
           <div class="actions">
             <button onclick="fetchPolicies(true)">一覧を取得・更新</button>
           </div>
+          <label for="policyFilter">絞り込み検索(ポリシー名やIDの一部を入力)</label>
+          <input id="policyFilter" oninput="filterPoliciesTable()" placeholder="例: FedEx">
           <div class="tablewrap">
             <table id="policiesTable">
               <thead>
@@ -262,11 +264,11 @@
           <div class="row">
             <div>
               <label for="bulkFromPolicy">置換元(今使っている)配送ポリシー</label>
-              <select id="bulkFromPolicy"></select>
+              <input id="bulkFromPolicy" list="policyDatalist" placeholder="名前の一部を入力すると候補が出ます">
             </div>
             <div>
               <label for="bulkToPolicy">変更先の配送ポリシー</label>
-              <select id="bulkToPolicy"></select>
+              <input id="bulkToPolicy" list="policyDatalist" placeholder="名前の一部を入力すると候補が出ます">
             </div>
           </div>
           <div class="row3">
@@ -310,8 +312,8 @@
           <input id="singleListingId" oninput="resetSinglePreview()">
           <div class="row">
             <div>
-              <label for="singleToPolicy">変更先の配送ポリシー(変えない場合は「変更しない」)</label>
-              <select id="singleToPolicy" onchange="resetSinglePreview()"></select>
+              <label for="singleToPolicy">変更先の配送ポリシー(変えない場合は空欄)</label>
+              <input id="singleToPolicy" list="policyDatalist" placeholder="名前の一部を入力すると候補が出ます" oninput="resetSinglePreview()">
             </div>
             <div>
               <label for="singleOverride">送料を直接指定USD(指定すると下の自動計算より優先)</label>
@@ -344,6 +346,8 @@
         </section>
 
       </div>
+
+      <datalist id="policyDatalist"></datalist>
 
       <div id="status" class="status">準備できています。</div>
     </main>
@@ -512,27 +516,46 @@
       }
 
       function fillPolicySelects() {
-        const fulfillment = policies.fulfillment || [];
-        fillSelect('bulkFromPolicy', fulfillment, '選択してください');
-        fillSelect('bulkToPolicy', fulfillment, '選択してください');
-        fillSelect('singleToPolicy', fulfillment, '変更しない(今のポリシーのまま)');
+        const datalist = document.getElementById('policyDatalist');
+        datalist.innerHTML = '';
+        (policies.fulfillment || []).forEach(policy => {
+          const option = document.createElement('option');
+          option.value = policy.name + ' (' + policy.policyId + ')';
+          datalist.appendChild(option);
+        });
       }
 
-      function fillSelect(id, list, emptyLabel) {
-        const select = document.getElementById(id);
-        const current = select.value;
-        select.innerHTML = '';
-        const empty = document.createElement('option');
-        empty.value = '';
-        empty.textContent = emptyLabel;
-        select.appendChild(empty);
-        list.forEach(policy => {
-          const option = document.createElement('option');
-          option.value = policy.policyId;
-          option.textContent = policy.name + ' (' + policy.policyId + ')';
-          select.appendChild(option);
+      // 入力欄の文字から配送ポリシーIDを特定する。
+      // 「名前 (ID)」の形 → そのID / ID直接入力 → そのID / 名前の一部 → 一致が1件ならそのID
+      function resolvePolicyInput(inputId, fieldLabel) {
+        const text = document.getElementById(inputId).value.trim();
+        if (!text) return '';
+        const fulfillment = (policies && policies.fulfillment) || [];
+        if (fulfillment.length === 0) {
+          throw new Error('ポリシー一覧が未取得です。「ポリシー一覧」タブで「一覧を取得・更新」を押してください。');
+        }
+        const idMatch = text.match(/\(([^()]+)\)\s*$/);
+        if (idMatch && fulfillment.some(policy => policy.policyId === idMatch[1])) {
+          return idMatch[1];
+        }
+        if (fulfillment.some(policy => policy.policyId === text)) {
+          return text;
+        }
+        const hits = fulfillment.filter(policy => policy.name.toLowerCase().indexOf(text.toLowerCase()) !== -1);
+        if (hits.length === 1) {
+          return hits[0].policyId;
+        }
+        if (hits.length === 0) {
+          throw new Error(fieldLabel + ': 「' + text + '」に一致する配送ポリシーが見つかりません。候補から選び直してください。');
+        }
+        throw new Error(fieldLabel + ': 「' + text + '」に一致するポリシーが' + hits.length + '件あります。もう少し長く入力するか、候補から選んでください。');
+      }
+
+      function filterPoliciesTable() {
+        const keyword = document.getElementById('policyFilter').value.trim().toLowerCase();
+        document.querySelectorAll('#policiesTable tbody tr').forEach(tr => {
+          tr.style.display = (!keyword || tr.textContent.toLowerCase().indexOf(keyword) !== -1) ? '' : 'none';
         });
-        if (current) select.value = current;
       }
 
       function escapeHtml(value) {
@@ -546,12 +569,18 @@
       // ---- 一括変更 ----
 
       async function startBulkSearch() {
-        const fromPolicyId = document.getElementById('bulkFromPolicy').value;
-        const toPolicyId = document.getElementById('bulkToPolicy').value;
+        let fromPolicyId, toPolicyId;
+        try {
+          fromPolicyId = resolvePolicyInput('bulkFromPolicy', '置換元');
+          toPolicyId = resolvePolicyInput('bulkToPolicy', '変更先');
+        } catch (error) {
+          setStatus(errText(error), true);
+          return;
+        }
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
         const addFixed = document.getElementById('bulkAddFixed').value.trim();
         if (!fromPolicyId || !toPolicyId) {
-          setStatus('置換元と変更先の配送ポリシーを選択してください。', true);
+          setStatus('置換元と変更先の配送ポリシーを入力してください。', true);
           return;
         }
         if (fromPolicyId === toPolicyId) {
@@ -670,11 +699,17 @@
       }
 
       async function applyBulk() {
-        const toPolicyId = document.getElementById('bulkToPolicy').value;
+        let toPolicyId;
+        try {
+          toPolicyId = resolvePolicyInput('bulkToPolicy', '変更先');
+        } catch (error) {
+          setStatus(errText(error), true);
+          return;
+        }
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
         const addFixed = document.getElementById('bulkAddFixed').value.trim();
         if (!toPolicyId) {
-          setStatus('変更先の配送ポリシーを選択してください。', true);
+          setStatus('変更先の配送ポリシーを入力してください。', true);
           return;
         }
         const rows = Array.from(document.querySelectorAll('#bulkTable tbody tr'))
@@ -740,7 +775,7 @@
       function readSingleForm() {
         return {
           listingId: document.getElementById('singleListingId').value.trim(),
-          fulfillmentPolicyId: document.getElementById('singleToPolicy').value,
+          fulfillmentPolicyId: resolvePolicyInput('singleToPolicy', '変更先の配送ポリシー'),
           overrideShippingCostUSD: document.getElementById('singleOverride').value.trim(),
           dutyRate: document.getElementById('singleDutyRate').value.trim(),
           addFixedUSD: document.getElementById('singleAddFixed').value.trim(),
