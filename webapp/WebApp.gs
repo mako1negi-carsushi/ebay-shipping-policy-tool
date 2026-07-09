@@ -1,7 +1,7 @@
 const WEBAPP_USERS_SHEET_NAME = 'Users';
 const WEBAPP_TOOL_ID = 'ebay-shipping-policy-tool';
 const WEBAPP_LOGIN_CODE_PREFIX = 'LOGIN_CODE_';
-const WEBAPP_SESSION_TTL_SECONDS = 21600;
+const WEBAPP_SESSION_TTL_SECONDS = 604800; // ログイン有効期間: 7日間
 const WEBAPP_LOGIN_CODE_TTL_SECONDS = 600;
 
 function doGet() {
