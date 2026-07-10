@@ -174,6 +174,10 @@ function waBuildExistingOfferUpdatePayload_(offer, row, props) {
     shippingCost: {
       value: shippingOverride,
       currency: props.CURRENCY
+    },
+    additionalShippingCost: {
+      value: waGetAdditionalShippingCost_(shippingOverride, row),
+      currency: props.CURRENCY
     }
   }];
 
@@ -362,6 +366,7 @@ function waBuildReviseFixedPriceItemXml_(row, item, props) {
     '<ShippingServiceType>Domestic</ShippingServiceType>' +
     '<ShippingServicePriority>1</ShippingServicePriority>' +
     '<ShippingServiceCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(shippingOverride) + '</ShippingServiceCost>' +
+    '<ShippingServiceAdditionalCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(waGetAdditionalShippingCost_(shippingOverride, row)) + '</ShippingServiceAdditionalCost>' +
     '</ShippingServiceCostOverride>' +
     '</ShippingServiceCostOverrideList>' +
     '</Item>' +
@@ -409,6 +414,17 @@ function waGetShippingOverride_(row) {
     ? 0
     : waAsNumber_(row.addFixedUSD, '固定追加額');
   return waRoundMoney_(price * dutyRate + addFixed);
+}
+
+// 同一商品2個目以降の追加送料 = 送料 × 割合(%)。空欄なら75%
+function waGetAdditionalShippingCost_(shippingOverride, row) {
+  const percent = (row.additionalRatePercent === '' || typeof row.additionalRatePercent === 'undefined' || row.additionalRatePercent === null)
+    ? 75
+    : waAsNumber_(row.additionalRatePercent, '追加送料の割合');
+  if (percent < 0 || percent > 100) {
+    throw new Error('追加送料の割合は0から100の数字で入力してください: ' + percent);
+  }
+  return waRoundMoney_(waAsNumber_(shippingOverride, '送料') * percent / 100);
 }
 
 function waAsNumber_(value, label) {

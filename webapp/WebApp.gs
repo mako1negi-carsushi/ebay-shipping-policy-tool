@@ -342,6 +342,7 @@ function webTradingPreview(token, form) {
     item: item,
     priceUSD: row.priceUSD,
     computedShipping: waGetShippingOverride_(row),
+    computedAdditionalShipping: waGetAdditionalShippingCost_(waGetShippingOverride_(row), row),
     targetPolicyId: row.fulfillmentPolicyId || item.shippingProfileId,
     requestXml: requestXml
   };
@@ -360,7 +361,8 @@ function webTradingUpdate(token, form) {
   return {
     ok: true,
     itemId: item.itemId,
-    computedShipping: waGetShippingOverride_(row)
+    computedShipping: waGetShippingOverride_(row),
+    computedAdditionalShipping: waGetAdditionalShippingCost_(waGetShippingOverride_(row), row)
   };
 }
 
@@ -376,6 +378,7 @@ function normalizeTradingForm_(form) {
     priceUSD: form.priceUSD === '' || typeof form.priceUSD === 'undefined' || form.priceUSD === null ? '' : form.priceUSD,
     dutyRate: form.dutyRate === '' || typeof form.dutyRate === 'undefined' || form.dutyRate === null ? '' : form.dutyRate,
     addFixedUSD: form.addFixedUSD === '' || typeof form.addFixedUSD === 'undefined' || form.addFixedUSD === null ? '' : form.addFixedUSD,
+    additionalRatePercent: form.additionalRatePercent === '' || typeof form.additionalRatePercent === 'undefined' || form.additionalRatePercent === null ? '' : form.additionalRatePercent,
     overrideShippingCostUSD: form.overrideShippingCostUSD === '' || typeof form.overrideShippingCostUSD === 'undefined' || form.overrideShippingCostUSD === null ? '' : form.overrideShippingCostUSD
   };
 }
@@ -398,6 +401,7 @@ function webInventoryPreview(token, form) {
     currentPolicyId: waGetFulfillmentPolicyIdFromOffer_(offer),
     targetPolicyId: row.fulfillmentPolicyId || waGetFulfillmentPolicyIdFromOffer_(offer),
     computedShipping: waGetShippingOverride_(row),
+    computedAdditionalShipping: waGetAdditionalShippingCost_(waGetShippingOverride_(row), row),
     payloadPreview: JSON.stringify(payload, null, 2)
   };
 }
@@ -431,6 +435,7 @@ function normalizeInventoryForm_(form) {
     fulfillmentPolicyId: String(form.fulfillmentPolicyId || '').trim(),
     priceUSD: form.priceUSD === '' || typeof form.priceUSD === 'undefined' || form.priceUSD === null ? '' : form.priceUSD,
     dutyRate: form.dutyRate === '' || typeof form.dutyRate === 'undefined' || form.dutyRate === null ? '' : form.dutyRate,
+    additionalRatePercent: form.additionalRatePercent === '' || typeof form.additionalRatePercent === 'undefined' || form.additionalRatePercent === null ? '' : form.additionalRatePercent,
     overrideShippingCostUSD: form.overrideShippingCostUSD === '' || typeof form.overrideShippingCostUSD === 'undefined' || form.overrideShippingCostUSD === null ? '' : form.overrideShippingCostUSD
   };
 }
@@ -538,6 +543,7 @@ function webBulkApply(token, request) {
   const items = (request.items || []).slice(0, WEB_BULK_APPLY_MAX_PER_CALL);
   const dutyRate = request.dutyRate === '' || typeof request.dutyRate === 'undefined' || request.dutyRate === null ? '' : request.dutyRate;
   const addFixedUSD = request.addFixedUSD === '' || typeof request.addFixedUSD === 'undefined' || request.addFixedUSD === null ? '' : request.addFixedUSD;
+  const additionalRatePercent = request.additionalRatePercent === '' || typeof request.additionalRatePercent === 'undefined' || request.additionalRatePercent === null ? '' : request.additionalRatePercent;
 
   const results = items.map(entry => {
     const itemId = String(entry.itemId || '').trim();
@@ -548,6 +554,7 @@ function webBulkApply(token, request) {
         priceUSD: entry.priceUSD === '' || typeof entry.priceUSD === 'undefined' || entry.priceUSD === null ? '' : entry.priceUSD,
         dutyRate: dutyRate,
         addFixedUSD: addFixedUSD,
+        additionalRatePercent: additionalRatePercent,
         overrideShippingCostUSD: entry.overrideShippingCostUSD === '' || typeof entry.overrideShippingCostUSD === 'undefined' || entry.overrideShippingCostUSD === null ? '' : entry.overrideShippingCostUSD
       };
       const item = waGetTradingItem_(row.listingId, props);
@@ -559,7 +566,8 @@ function webBulkApply(token, request) {
       return {
         itemId: itemId,
         ok: true,
-        computedShipping: waGetShippingOverride_(row)
+        computedShipping: waGetShippingOverride_(row),
+        computedAdditionalShipping: waGetAdditionalShippingCost_(waGetShippingOverride_(row), row)
       };
     } catch (err) {
       return {

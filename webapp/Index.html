@@ -281,8 +281,12 @@
               <input id="bulkAddFixed" inputmode="decimal" placeholder="5.00" oninput="recomputeBulkShipping()">
             </div>
             <div>
+              <label for="bulkAdditionalRate">追加送料の割合%(同一商品2個目以降)</label>
+              <input id="bulkAdditionalRate" inputmode="decimal" placeholder="75" value="75">
+            </div>
+            <div>
               <label>&nbsp;</label>
-              <p class="muted">新しい送料 = 商品価格 × 関税率 + 固定追加額(1件ずつ自動計算)。どちらか一方だけでも使えます。</p>
+              <p class="muted">新しい送料 = 商品価格 × 関税率 + 固定追加額(1件ずつ自動計算)。同一商品2個目以降は「送料 × 割合%」が追加送料になります(空欄なら75%)。</p>
             </div>
           </div>
           <div class="actions">
@@ -330,8 +334,12 @@
               <input id="singleAddFixed" inputmode="decimal" oninput="resetSinglePreview()">
             </div>
             <div>
+              <label for="singleAdditionalRate">追加送料の割合%(同一商品2個目以降)</label>
+              <input id="singleAdditionalRate" inputmode="decimal" placeholder="75" value="75" oninput="resetSinglePreview()">
+            </div>
+            <div>
               <label>&nbsp;</label>
-              <p class="muted">自動計算: 送料 = 価格 × 関税率 + 固定追加額</p>
+              <p class="muted">自動計算: 送料 = 価格 × 関税率 + 固定追加額。同一商品2個目以降は「送料 × 割合%」が追加送料になります(空欄なら75%)。</p>
             </div>
           </div>
           <div class="actions">
@@ -733,6 +741,7 @@
               toPolicyId: toPolicyId,
               dutyRate: dutyRate,
               addFixedUSD: addFixed,
+              additionalRatePercent: document.getElementById('bulkAdditionalRate').value.trim(),
               items: batch.map(tr => ({
                 itemId: tr.getAttribute('data-itemid'),
                 priceUSD: tr.getAttribute('data-price'),
@@ -779,6 +788,7 @@
           overrideShippingCostUSD: document.getElementById('singleOverride').value.trim(),
           dutyRate: document.getElementById('singleDutyRate').value.trim(),
           addFixedUSD: document.getElementById('singleAddFixed').value.trim(),
+          additionalRatePercent: document.getElementById('singleAdditionalRate').value.trim(),
           priceUSD: ''
         };
       }
@@ -796,7 +806,8 @@
             '\n現在価格: $' + result.priceUSD +
             '\n現在の配送ポリシーID: ' + result.item.shippingProfileId +
             '\n変更後の配送ポリシーID: ' + result.targetPolicyId +
-            '\n新しい送料: $' + result.computedShipping;
+            '\n新しい送料: $' + result.computedShipping +
+            '\n同一商品2個目以降の追加送料: $' + result.computedAdditionalShipping;
           document.getElementById('singleXml').textContent = result.requestXml;
           document.getElementById('singleXmlDetails').classList.remove('hidden');
           document.getElementById('singleUpdateBtn').disabled = false;
@@ -812,7 +823,7 @@
           setStatus('更新しています...');
           const result = await callServer('webTradingUpdate', sessionToken, readSingleForm());
           document.getElementById('singleUpdateBtn').disabled = true;
-          setStatus('更新しました。Item ID: ' + result.itemId + ' / 新しい送料: $' + result.computedShipping);
+          setStatus('更新しました。Item ID: ' + result.itemId + ' / 新しい送料: $' + result.computedShipping + ' / 2個目以降の追加送料: $' + result.computedAdditionalShipping);
         } catch (error) {
           setStatus(errText(error), true);
         }
