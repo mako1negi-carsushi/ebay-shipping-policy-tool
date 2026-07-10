@@ -62,7 +62,40 @@ function onOpen() {
     .addSeparator()
     .addItem('既存出品: 選択行の送料を更新', 'updateExistingSelectedRows')
     .addItem('既存出品: publish=TRUEの送料を更新', 'updateExistingApprovedRows')
+    .addSeparator()
+    .addItem('設定: 追加送料の割合(%)を変更', 'setAdditionalShippingRate')
     .addToUi();
+}
+
+function setAdditionalShippingRate() {
+  const ui = SpreadsheetApp.getUi();
+  const store = PropertiesService.getScriptProperties();
+  const current = store.getProperty('ADDITIONAL_SHIPPING_RATE') || '0.75';
+  const currentPercent = Math.round(Number(current) * 10000) / 100;
+
+  const response = ui.prompt(
+    '追加送料の割合',
+    '同一商品を2個以上購入されたとき、2個目以降1個あたりの追加送料を「送料の何%」にするか入力してください。\n\n' +
+    '例: 75 と入力すると送料の75%になります。\n\n' +
+    '現在の設定: ' + currentPercent + '%',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const text = response.getResponseText().trim();
+  const percent = Number(text);
+  if (text === '' || !isFinite(percent) || percent < 0 || percent > 100) {
+    ui.alert('0から100までの数字で入力してください。例: 75');
+    return;
+  }
+
+  store.setProperty('ADDITIONAL_SHIPPING_RATE', String(percent / 100));
+  ui.alert(
+    '追加送料の割合を ' + percent + '% に設定しました。\n\n' +
+    '次回の送料更新から反映されます。'
+  );
 }
 
 function showEbayOAuthUrl() {
@@ -982,6 +1015,10 @@ function buildExistingOfferUpdatePayload_(offer, row, props) {
     shippingCost: {
       value: shippingOverride,
       currency: props.CURRENCY
+    },
+    additionalShippingCost: {
+      value: getAdditionalShippingCost_(shippingOverride, props),
+      currency: props.CURRENCY
     }
   }];
 
@@ -1013,6 +1050,11 @@ function pickWritableOfferFields_(offer) {
     }
   });
   return payload;
+}
+
+function getAdditionalShippingCost_(shippingOverride, props) {
+  const rate = asNumber_(props.ADDITIONAL_SHIPPING_RATE, 'ADDITIONAL_SHIPPING_RATE');
+  return roundMoney_(asNumber_(shippingOverride, 'shippingCost') * rate);
 }
 
 function getShippingOverride_(row) {
@@ -1313,6 +1355,7 @@ function buildReviseFixedPriceItemXml_(row, item, props) {
     '<ShippingServiceType>Domestic</ShippingServiceType>' +
     '<ShippingServicePriority>1</ShippingServicePriority>' +
     '<ShippingServiceCost currencyID="' + escapeXml_(props.CURRENCY) + '">' + escapeXml_(shippingOverride) + '</ShippingServiceCost>' +
+    '<ShippingServiceAdditionalCost currencyID="' + escapeXml_(props.CURRENCY) + '">' + escapeXml_(getAdditionalShippingCost_(shippingOverride, props)) + '</ShippingServiceAdditionalCost>' +
     '</ShippingServiceCostOverride>' +
     '</ShippingServiceCostOverrideList>' +
     '</Item>' +
@@ -1391,6 +1434,7 @@ function getConfig_() {
     RETURN_POLICY_ID: store.getProperty('RETURN_POLICY_ID'),
     MARKETPLACE_ID: store.getProperty('MARKETPLACE_ID') || 'EBAY_US',
     CURRENCY: store.getProperty('CURRENCY') || 'USD',
+    ADDITIONAL_SHIPPING_RATE: store.getProperty('ADDITIONAL_SHIPPING_RATE') || '0.75',
     CONTENT_LANGUAGE: store.getProperty('CONTENT_LANGUAGE') || 'en-US',
     TRADING_SITE_ID: store.getProperty('TRADING_SITE_ID'),
     TRADING_API_VERSION: store.getProperty('TRADING_API_VERSION') || '1455'
