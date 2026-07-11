@@ -101,8 +101,13 @@ function waParseEbayResponse_(response, label) {
 
 // ---- ポリシー一覧 ----
 
+// REST API(Account/Inventory)はEBAY_MOTORSを受け付けない(モーターズはEBAY_USの一部扱い)
+function waGetRestMarketplaceId_(props) {
+  return props.MARKETPLACE_ID === 'EBAY_MOTORS' ? 'EBAY_US' : props.MARKETPLACE_ID;
+}
+
 function waFetchAllPolicies_(props) {
-  const marketplace = encodeURIComponent(props.MARKETPLACE_ID);
+  const marketplace = encodeURIComponent(waGetRestMarketplaceId_(props));
   const fulfillment = (waEbayFetch_('/sell/account/v1/fulfillment_policy?marketplace_id=' + marketplace, { method: 'get' }, props).fulfillmentPolicies || [])
     .map(policy => ({ type: 'FULFILLMENT', name: policy.name || '', policyId: String(policy.fulfillmentPolicyId || '') }));
   const payment = (waEbayFetch_('/sell/account/v1/payment_policy?marketplace_id=' + marketplace, { method: 'get' }, props).paymentPolicies || [])
@@ -113,7 +118,7 @@ function waFetchAllPolicies_(props) {
     fulfillment: fulfillment,
     payment: payment,
     returns: returns,
-    marketplaceId: props.MARKETPLACE_ID
+    marketplaceId: waGetRestMarketplaceId_(props)
   };
 }
 
@@ -126,7 +131,7 @@ function waGetOffer_(offerId, props) {
 function waGetOffersBySku_(sku, props) {
   const query =
     '?sku=' + encodeURIComponent(sku) +
-    '&marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID) +
+    '&marketplace_id=' + encodeURIComponent(waGetRestMarketplaceId_(props)) +
     '&format=FIXED_PRICE';
   return waEbayFetch_('/sell/inventory/v1/offer' + query, { method: 'get' }, props);
 }
@@ -160,7 +165,7 @@ function waBuildExistingOfferUpdatePayload_(offer, row, props) {
   const shippingOverride = waGetShippingOverride_(row);
   const payload = waPickWritableOfferFields_(offer);
   payload.sku = payload.sku || row.sku;
-  payload.marketplaceId = payload.marketplaceId || props.MARKETPLACE_ID;
+  payload.marketplaceId = payload.marketplaceId || waGetRestMarketplaceId_(props);
   payload.format = payload.format || 'FIXED_PRICE';
 
   if (!payload.listingPolicies) {

@@ -258,17 +258,17 @@ function fetchPolicyIds() {
 
   const fulfillment = getFulfillmentPolicies_(props).fulfillmentPolicies || [];
   fulfillment.forEach(policy => {
-    rows.push(['FULFILLMENT', policy.name || '', policy.fulfillmentPolicyId || '', props.MARKETPLACE_ID]);
+    rows.push(['FULFILLMENT', policy.name || '', policy.fulfillmentPolicyId || '', getRestMarketplaceId_(props)]);
   });
 
   const payment = getPaymentPolicies_(props).paymentPolicies || [];
   payment.forEach(policy => {
-    rows.push(['PAYMENT', policy.name || '', policy.paymentPolicyId || '', props.MARKETPLACE_ID]);
+    rows.push(['PAYMENT', policy.name || '', policy.paymentPolicyId || '', getRestMarketplaceId_(props)]);
   });
 
   const returns = getReturnPolicies_(props).returnPolicies || [];
   returns.forEach(policy => {
-    rows.push(['RETURN', policy.name || '', policy.returnPolicyId || '', props.MARKETPLACE_ID]);
+    rows.push(['RETURN', policy.name || '', policy.returnPolicyId || '', getRestMarketplaceId_(props)]);
   });
 
   sheet.clear();
@@ -997,7 +997,7 @@ function buildExistingOfferUpdatePayload_(offer, row, props) {
   const shippingOverride = getShippingOverride_(row);
   const payload = pickWritableOfferFields_(offer);
   payload.sku = payload.sku || row.sku;
-  payload.marketplaceId = payload.marketplaceId || props.MARKETPLACE_ID;
+  payload.marketplaceId = payload.marketplaceId || getRestMarketplaceId_(props);
   payload.format = payload.format || 'FIXED_PRICE';
 
   if (!payload.listingPolicies) {
@@ -1075,27 +1075,32 @@ function getOffer_(offerId, props) {
 function getOffersBySku_(sku, props) {
   const query =
     '?sku=' + encodeURIComponent(sku) +
-    '&marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID) +
+    '&marketplace_id=' + encodeURIComponent(getRestMarketplaceId_(props)) +
     '&format=FIXED_PRICE';
   return ebayFetch_('/sell/inventory/v1/offer' + query, {
     method: 'get'
   }, props);
 }
 
+// REST API(Account/Inventory)はEBAY_MOTORSを受け付けない(モーターズはEBAY_USの一部扱い)
+function getRestMarketplaceId_(props) {
+  return props.MARKETPLACE_ID === 'EBAY_MOTORS' ? 'EBAY_US' : props.MARKETPLACE_ID;
+}
+
 function getFulfillmentPolicies_(props) {
-  return ebayFetch_('/sell/account/v1/fulfillment_policy?marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID), {
+  return ebayFetch_('/sell/account/v1/fulfillment_policy?marketplace_id=' + encodeURIComponent(getRestMarketplaceId_(props)), {
     method: 'get'
   }, props);
 }
 
 function getPaymentPolicies_(props) {
-  return ebayFetch_('/sell/account/v1/payment_policy?marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID), {
+  return ebayFetch_('/sell/account/v1/payment_policy?marketplace_id=' + encodeURIComponent(getRestMarketplaceId_(props)), {
     method: 'get'
   }, props);
 }
 
 function getReturnPolicies_(props) {
-  return ebayFetch_('/sell/account/v1/return_policy?marketplace_id=' + encodeURIComponent(props.MARKETPLACE_ID), {
+  return ebayFetch_('/sell/account/v1/return_policy?marketplace_id=' + encodeURIComponent(getRestMarketplaceId_(props)), {
     method: 'get'
   }, props);
 }
