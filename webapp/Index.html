@@ -260,15 +260,15 @@
         <!-- 一括変更 -->
         <section id="bulkTab" class="tab hidden">
           <h2>配送ポリシー一括変更</h2>
-          <p class="muted">「今Aの配送ポリシーを使っている出品」を全部探して、Bのポリシーに変更し、同時に送料上書き額(商品価格 × 関税率)を設定します。</p>
+          <p class="muted">「今Aの配送ポリシーを使っている出品」を全部探して、Bのポリシーに変更し、同時に送料上書き額(商品価格 × 関税率)を設定します。ポリシーは変えずに送料の金額だけ更新したい場合は、変更先を空欄にしてください。</p>
           <div class="row">
             <div>
               <label for="bulkFromPolicy">置換元(今使っている)配送ポリシー</label>
               <input id="bulkFromPolicy" list="policyDatalist" placeholder="名前の一部を入力すると候補が出ます">
             </div>
             <div>
-              <label for="bulkToPolicy">変更先の配送ポリシー</label>
-              <input id="bulkToPolicy" list="policyDatalist" placeholder="名前の一部を入力すると候補が出ます">
+              <label for="bulkToPolicy">変更先の配送ポリシー(送料だけ更新する場合は空欄)</label>
+              <input id="bulkToPolicy" list="policyDatalist" placeholder="空欄ならポリシーはそのまま・送料だけ更新">
             </div>
           </div>
           <div class="row3">
@@ -587,12 +587,8 @@
         }
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
         const addFixed = document.getElementById('bulkAddFixed').value.trim();
-        if (!fromPolicyId || !toPolicyId) {
-          setStatus('置換元と変更先の配送ポリシーを入力してください。', true);
-          return;
-        }
-        if (fromPolicyId === toPolicyId) {
-          setStatus('置換元と変更先が同じです。別のポリシーを選択してください。', true);
+        if (!fromPolicyId) {
+          setStatus('置換元の配送ポリシーを入力してください。', true);
           return;
         }
         if (dutyRate === '' && addFixed === '') {
@@ -710,6 +706,10 @@
         let toPolicyId;
         try {
           toPolicyId = resolvePolicyInput('bulkToPolicy', '変更先');
+          if (!toPolicyId) {
+            // 変更先が空欄のときはポリシーは変えず、送料だけ更新する
+            toPolicyId = resolvePolicyInput('bulkFromPolicy', '置換元');
+          }
         } catch (error) {
           setStatus(errText(error), true);
           return;
@@ -717,7 +717,7 @@
         const dutyRate = document.getElementById('bulkDutyRate').value.trim();
         const addFixed = document.getElementById('bulkAddFixed').value.trim();
         if (!toPolicyId) {
-          setStatus('変更先の配送ポリシーを入力してください。', true);
+          setStatus('置換元の配送ポリシーを入力してください。', true);
           return;
         }
         const rows = Array.from(document.querySelectorAll('#bulkTable tbody tr'))
