@@ -122,6 +122,33 @@ function waFetchAllPolicies_(props) {
   };
 }
 
+// 配送ポリシー(fulfillment policy)の「国内(DOMESTIC)配送サービス」の件数を返す。
+// 送料上書き(ShippingServiceCostOverride)は国内サービス全件分が必要なため、この件数だけ上書きを作る。
+// 同じポリシーIDへの再取得を避けるため実行中はキャッシュする。
+const WA_DOMESTIC_SVC_COUNT_CACHE = {};
+function waGetDomesticServiceCount_(policyId, props) {
+  if (!policyId) return 1;
+  if (WA_DOMESTIC_SVC_COUNT_CACHE.hasOwnProperty(policyId)) {
+    return WA_DOMESTIC_SVC_COUNT_CACHE[policyId];
+  }
+  let count = 1; // 取得できないときは従来どおり1件(安全側)
+  try {
+    const policy = waEbayFetch_('/sell/account/v1/fulfillment_policy/' + encodeURIComponent(policyId), { method: 'get' }, props);
+    const options = (policy && policy.shippingOptions) || [];
+    let domestic = 0;
+    options.forEach(opt => {
+      if (opt && opt.optionType === 'DOMESTIC') {
+        domestic += ((opt.shippingServices) || []).length;
+      }
+    });
+    count = domestic; // 0件のときはそのまま0(上書き不要)
+  } catch (e) {
+    count = 1;
+  }
+  WA_DOMESTIC_SVC_COUNT_CACHE[policyId] = count;
+  return count;
+}
+
 // ---- Inventory API (SKU / offerId ベース) ----
 
 function waGetOffer_(offerId, props) {
@@ -355,6 +382,25 @@ function waBuildReviseFixedPriceItemXml_(row, item, props) {
   }
 
   const shippingOverride = waGetShippingOverride_(row);
+  const additionalShipping = waGetAdditionalShippingCost_(shippingOverride, row);
+  // 国内配送を上書きする場合、eBayは対象の配送ポリシーが持つ「国内サービス全件」分の上書きを要求する。
+  // (1件だけ送ると "you need to provide overrides for all services in domestic shipping" エラーになる)
+  // ポリシー詳細から国内サービス件数を取得し、全件に同じ送料を設定する。
+  const domesticCount = waGetDomesticServiceCount_(shippingProfileId, props);
+  let overrideItems = '';
+  for (let priority = 1; priority <= domesticCount; priority++) {
+    overrideItems +=
+      '<ShippingServiceCostOverride>' +
+      '<ShippingServiceType>Domestic</ShippingServiceType>' +
+      '<ShippingServicePriority>' + priority + '</ShippingServicePriority>' +
+      '<ShippingServiceCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(shippingOverride) + '</ShippingServiceCost>' +
+      '<ShippingServiceAdditionalCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(additionalShipping) + '</ShippingServiceAdditionalCost>' +
+      '</ShippingServiceCostOverride>';
+  }
+  // 国内サービスが1件も無いポリシー(取得0件)のときは上書きリスト自体を省く
+  const overrideBlock = overrideItems
+    ? '<ShippingServiceCostOverrideList>' + overrideItems + '</ShippingServiceCostOverrideList>'
+    : '';
   return (
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
@@ -366,14 +412,7 @@ function waBuildReviseFixedPriceItemXml_(row, item, props) {
     '<SellerReturnProfile><ReturnProfileID>' + waEscapeXml_(returnProfileId) + '</ReturnProfileID></SellerReturnProfile>' +
     '<SellerShippingProfile><ShippingProfileID>' + waEscapeXml_(shippingProfileId) + '</ShippingProfileID></SellerShippingProfile>' +
     '</SellerProfiles>' +
-    '<ShippingServiceCostOverrideList>' +
-    '<ShippingServiceCostOverride>' +
-    '<ShippingServiceType>Domestic</ShippingServiceType>' +
-    '<ShippingServicePriority>1</ShippingServicePriority>' +
-    '<ShippingServiceCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(shippingOverride) + '</ShippingServiceCost>' +
-    '<ShippingServiceAdditionalCost currencyID="' + waEscapeXml_(props.CURRENCY) + '">' + waEscapeXml_(waGetAdditionalShippingCost_(shippingOverride, row)) + '</ShippingServiceAdditionalCost>' +
-    '</ShippingServiceCostOverride>' +
-    '</ShippingServiceCostOverrideList>' +
+    overrideBlock +
     '</Item>' +
     '</ReviseFixedPriceItemRequest>'
   );
@@ -398,10 +437,26 @@ function waAssertTradingAck_(doc, responseText) {
 
 function waExtractTradingErrors_(root, ns, fallbackText) {
   const errors = root.getChildren('Errors', ns) || [];
-  const messages = errors
-    .map(error => waTextChild_(error, ns, 'LongMessage') || waTextChild_(error, ns, 'ShortMessage'))
+  // 警告(SeverityCode=Warning)は本当の失敗ではないので除外する。
+  // 例:「Best Offer出品では即時支払いを必須にできません」は警告で、送料更新の可否には無関係。
+  let picked = errors.filter(error => (waTextChild_(error, ns, 'SeverityCode') || 'Error') === 'Error');
+  if (!picked.length) {
+    picked = errors; // 万一Error severityが無ければ全件を使う
+  }
+  const messages = picked
+    .map(error => waFriendlyTradingError_(waTextChild_(error, ns, 'LongMessage') || waTextChild_(error, ns, 'ShortMessage') || ''))
     .filter(message => message);
-  return messages.length ? messages.join(' / ') : fallbackText;
+  const uniqueMessages = messages.filter((message, index) => messages.indexOf(message) === index);
+  return uniqueMessages.length ? uniqueMessages.join(' / ') : fallbackText;
+}
+
+// eBayの分かりにくいエラー文を日本語で補足する(該当しなければ原文のまま返す)
+function waFriendlyTradingError_(message) {
+  const text = String(message || '');
+  if (/12 hours|cannot be revised|cannot be changed/i.test(text)) {
+    return 'この出品は「購入オファー(Best Offer)が来ている／入札がある／終了まで12時間以内」のいずれかのため、eBayの仕様で今は送料を変更できません。オファーへの対応後、または該当時間の経過後に再度お試しください。(eBay原文: ' + text + ')';
+  }
+  return text;
 }
 
 // ---- 共通ヘルパー ----
