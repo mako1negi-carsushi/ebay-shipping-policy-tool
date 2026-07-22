@@ -482,7 +482,8 @@ function webBulkSearchChunk(token, params) {
   let done = false;
 
   while (Date.now() - startedAt < WEB_BULK_CHUNK_TIME_LIMIT_MS) {
-    const page = waGetTradingActiveListPage_(pageNumber, 200, props);
+    // GetSellerList(終了日ウィンドウ方式)を使う: 25,000件上限がなく、出品国も取れる
+    const page = waGetSellerListPage_(pageNumber, 200, props);
     totalPages = page.totalPages;
     if (page.items.length === 0) {
       done = true;
@@ -498,6 +499,10 @@ function webBulkSearchChunk(token, params) {
       }
       const summary = page.items[index];
       checked++;
+      // アメリカ(ebay.com)以外の出品はスキップ(各国出品が混ざって上限を圧迫していたため)
+      if (summary.site && summary.site !== 'US') {
+        continue;
+      }
       const item = summary.shippingProfileId ? summary : waGetTradingItem_(summary.itemId, props);
       if (String(item.shippingProfileId) !== fromPolicyId) {
         continue;

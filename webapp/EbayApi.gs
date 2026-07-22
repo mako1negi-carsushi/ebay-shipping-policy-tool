@@ -366,11 +366,56 @@ function waParseTradingItemElement_(item, ns) {
     itemId: waTextChild_(item, ns, 'ItemID'),
     sku: waTextChild_(item, ns, 'SKU'),
     title: waTextChild_(item, ns, 'Title'),
+    site: waTextChild_(item, ns, 'Site'),
     price: currentPrice ? currentPrice.getText() : '',
     paymentProfileId: paymentProfile ? waTextChild_(paymentProfile, ns, 'PaymentProfileID') : '',
     returnProfileId: returnProfile ? waTextChild_(returnProfile, ns, 'ReturnProfileID') : '',
     shippingProfileId: shippingProfile ? waTextChild_(shippingProfile, ns, 'ShippingProfileID') : ''
   };
+}
+
+// GetSellerList: 終了日ウィンドウ方式でアクティブ出品を取得する。
+// GTC出品は「次の終了(自動再出品)日」が常に30日以内に来るため、
+// 今〜35日後のウィンドウで全アクティブ出品を漏れなくカバーできる。
+// GetMyeBaySellingにある「最大25,000件」の上限がなく、Site(出品国)も取れる。
+function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
+  const from = new Date();
+  const to = new Date(from.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const selectors = [
+    'ItemArray.Item.ItemID',
+    'ItemArray.Item.SKU',
+    'ItemArray.Item.Title',
+    'ItemArray.Item.Site',
+    'ItemArray.Item.SellingStatus.CurrentPrice',
+    'ItemArray.Item.SellerProfiles',
+    'PaginationResult',
+    'HasMoreItems'
+  ].map(s => '<OutputSelector>' + s + '</OutputSelector>').join('');
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?>' +
+    '<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
+    '<Version>' + props.TRADING_API_VERSION + '</Version>' +
+    '<DetailLevel>ReturnAll</DetailLevel>' +
+    selectors +
+    '<EndTimeFrom>' + from.toISOString() + '</EndTimeFrom>' +
+    '<EndTimeTo>' + to.toISOString() + '</EndTimeTo>' +
+    '<Pagination>' +
+    '<EntriesPerPage>' + entriesPerPage + '</EntriesPerPage>' +
+    '<PageNumber>' + pageNumber + '</PageNumber>' +
+    '</Pagination>' +
+    '</GetSellerListRequest>';
+  const responseText = waTradingFetch_('GetSellerList', xml, props);
+  const doc = XmlService.parse(responseText);
+  waAssertTradingAck_(doc, responseText);
+
+  const root = doc.getRootElement();
+  const ns = root.getNamespace();
+  const pagination = waChild_(root, ns, 'PaginationResult');
+  const totalPages = Number(pagination ? waTextChild_(pagination, ns, 'TotalNumberOfPages') || 1 : 1);
+  const itemArray = waChild_(root, ns, 'ItemArray');
+  const itemElements = itemArray ? itemArray.getChildren('Item', ns) : [];
+  const items = itemElements.map(item => waParseTradingItemElement_(item, ns));
+  return { items: items, totalPages: totalPages || 1 };
 }
 
 function waBuildReviseFixedPriceItemXml_(row, item, props) {
