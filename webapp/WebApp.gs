@@ -531,6 +531,32 @@ function webBulkSearchChunk(token, params) {
   };
 }
 
+// 一括変更: Item ID直接指定で出品情報を取得する(検索の25,000件上限で見つからない出品向け)
+// eBayのポリシー画面「N listings」リンクから拾ったItem IDを貼り付けて使う
+function webBulkLookupItems(token, request) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  request = request || {};
+  const ids = (request.itemIds || []).slice(0, 10);
+  const rows = ids.map(id => {
+    const itemId = String(id || '').trim();
+    try {
+      const item = waGetTradingItem_(itemId, props);
+      return {
+        ok: true,
+        itemId: String(item.itemId || itemId),
+        sku: String(item.sku || ''),
+        title: String(item.title || ''),
+        priceUSD: item.price ? waRoundMoney_(item.price) : '',
+        shippingProfileId: String(item.shippingProfileId || '')
+      };
+    } catch (err) {
+      return { ok: false, itemId: itemId, error: String(err && err.message ? err.message : err) };
+    }
+  });
+  return { rows: rows };
+}
+
 // 一括変更: 承認された出品をまとめて更新する(1回の呼び出しで最大10件)
 function webBulkApply(token, request) {
   const email = requireWebAppSession_(token);

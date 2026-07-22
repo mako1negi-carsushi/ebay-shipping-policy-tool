@@ -294,6 +294,14 @@
             <button id="bulkStopBtn" class="secondary" onclick="stopBulkSearch()" disabled>検索を一時停止</button>
             <button id="bulkApplyBtn" class="danger" onclick="applyBulk()" disabled>② チェックした出品を更新</button>
           </div>
+          <details style="margin-top:12px;">
+            <summary>①B Item IDを直接貼り付けて取得(検索で見つからない出品に)</summary>
+            <p class="muted">eBayは検索APIで最大25,000件までしか出品を返さないため、それを超える分は①の検索に出ません。eBayのポリシー画面で「N listings」のリンクを開き、残っている出品のItem ID(数字)をここに貼り付けてください(改行・カンマ・スペース区切り、混ざっていてもOK)。</p>
+            <textarea id="bulkItemIds" rows="3" style="width:100%;box-sizing:border-box;" placeholder="例: 166745671987, 167064913781"></textarea>
+            <div class="actions">
+              <button onclick="startBulkLookup()">①B Item IDから取得して表に追加</button>
+            </div>
+          </details>
           <div id="bulkProgress" class="status hidden"></div>
           <div class="tablewrap">
             <table id="bulkTable">
@@ -657,6 +665,51 @@
         bulkRunning = false;
         document.getElementById('bulkProgress').textContent =
           '一時停止しました。候補 ' + bulkMatchCount + '件。このまま更新もできます(検索を最初からやり直すこともできます)。';
+      }
+
+      // Item ID直接指定: 貼り付けたIDを取得して表に追加する
+      async function startBulkLookup() {
+        const raw = document.getElementById('bulkItemIds').value;
+        const ids = Array.from(new Set(raw.match(/\d{9,15}/g) || []));
+        if (ids.length === 0) {
+          setStatus('Item IDが見つかりません。数字のID(例: 166745671987)を貼り付けてください。', true);
+          return;
+        }
+        const existing = new Set(Array.from(document.querySelectorAll('#bulkTable tbody tr'))
+          .map(tr => tr.getAttribute('data-itemid')));
+        const targets = ids.filter(id => !existing.has(id));
+        if (targets.length === 0) {
+          setStatus('貼り付けたIDはすべて既に表にあります。', false);
+          return;
+        }
+        const progress = document.getElementById('bulkProgress');
+        progress.classList.remove('hidden');
+        document.getElementById('bulkApplyBtn').disabled = true;
+        let fetched = 0;
+        const failures = [];
+        try {
+          for (let i = 0; i < targets.length; i += 10) {
+            progress.textContent = 'Item ID取得中... ' + fetched + ' / ' + targets.length + '件';
+            const result = await callServer('webBulkLookupItems', sessionToken, {
+              itemIds: targets.slice(i, i + 10)
+            });
+            result.rows.forEach(row => {
+              if (row.ok) {
+                addBulkRow(row);
+                fetched++;
+              } else {
+                failures.push(row.itemId);
+              }
+            });
+          }
+          progress.textContent =
+            'Item ID取得完了。追加 ' + fetched + '件' +
+            (failures.length ? ' / 取得失敗 ' + failures.length + '件(' + failures.join(', ') + ')' : '') +
+            '。行にチェックを入れて「② チェックした出品を更新」を押してください。';
+        } catch (error) {
+          setStatus('Item ID取得中にエラー: ' + errText(error), true);
+        }
+        document.getElementById('bulkApplyBtn').disabled = bulkMatchCount === 0;
       }
 
       function addBulkRow(match) {
