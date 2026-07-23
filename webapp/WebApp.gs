@@ -499,8 +499,8 @@ function webBulkSearchChunk(token, params) {
       }
       const summary = page.items[index];
       checked++;
-      // アメリカ(ebay.com)以外の出品はスキップ(各国出品が混ざって上限を圧迫していたため)
-      if (summary.site && summary.site !== 'US') {
+      // アメリカ以外の出品はスキップ。自動車部品はSiteが「eBayMotors」で返るためUS扱いにする
+      if (summary.site && summary.site !== 'US' && summary.site !== 'eBayMotors') {
         continue;
       }
       const item = summary.shippingProfileId ? summary : waGetTradingItem_(summary.itemId, props);
@@ -534,6 +534,45 @@ function webBulkSearchChunk(token, params) {
     totalPages: totalPages,
     done: done
   };
+}
+
+// 診断: 検索APIが返す中身を1ページ分だけ集計して表示する(トラブル調査用)
+function webDiagScan(token) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  function summarize(page) {
+    const bySite = {};
+    let withProfile = 0;
+    page.items.forEach(it => {
+      const s = String(it.site || '(なし)');
+      bySite[s] = (bySite[s] || 0) + 1;
+      if (it.shippingProfileId) withProfile++;
+    });
+    return {
+      totalPages: page.totalPages,
+      itemsInPage: page.items.length,
+      siteBreakdown: bySite,
+      withShippingProfileId: withProfile,
+      sample: page.items[0] ? {
+        itemId: page.items[0].itemId,
+        site: String(page.items[0].site || '(なし)'),
+        shippingProfileId: String(page.items[0].shippingProfileId || '(なし)'),
+        title: String(page.items[0].title || '').slice(0, 40)
+      } : null
+    };
+  }
+  const out = {};
+  try {
+    out['GetSellerList(新方式)'] = summarize(waGetSellerListPage_(1, 200, props));
+  } catch (e) {
+    out['GetSellerList(新方式)'] = { error: String(e && e.message ? e.message : e) };
+  }
+  try {
+    out['GetMyeBaySelling(旧方式)'] = summarize(waGetTradingActiveListPage_(1, 200, props));
+  } catch (e) {
+    out['GetMyeBaySelling(旧方式)'] = { error: String(e && e.message ? e.message : e) };
+  }
+  return out;
 }
 
 // 一括変更: Item ID直接指定で出品情報を取得する(検索の25,000件上限で見つからない出品向け)

@@ -300,7 +300,9 @@
             <textarea id="bulkItemIds" rows="3" style="width:100%;box-sizing:border-box;" placeholder="例: 166745671987, 167064913781"></textarea>
             <div class="actions">
               <button onclick="startBulkLookup()">①B Item IDから取得して表に追加</button>
+              <button class="secondary" onclick="runDiagScan()">🔍 検索の診断(1ページだけ・数十秒)</button>
             </div>
+            <pre id="diagResult" class="hidden" style="white-space:pre-wrap;background:#f6f6f6;padding:10px;border-radius:6px;font-size:12px;"></pre>
           </details>
           <div id="bulkProgress" class="status hidden"></div>
           <div class="tablewrap">
@@ -665,6 +667,19 @@
         bulkRunning = false;
         document.getElementById('bulkProgress').textContent =
           '一時停止しました。候補 ' + bulkMatchCount + '件。このまま更新もできます(検索を最初からやり直すこともできます)。';
+      }
+
+      // 診断: 検索APIの1ページ目を集計して表示する
+      async function runDiagScan() {
+        const box = document.getElementById('diagResult');
+        box.classList.remove('hidden');
+        box.textContent = '診断中...(数十秒かかります)';
+        try {
+          const result = await callServer('webDiagScan', sessionToken);
+          box.textContent = JSON.stringify(result, null, 2);
+        } catch (error) {
+          box.textContent = '診断エラー: ' + errText(error);
+        }
       }
 
       // Item ID直接指定: 貼り付けたIDを取得して表に追加する
