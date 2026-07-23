@@ -378,9 +378,7 @@ function waParseTradingItemElement_(item, ns) {
 // GTC出品は「次の終了(自動再出品)日」が常に30日以内に来るため、
 // 今〜35日後のウィンドウで全アクティブ出品を漏れなくカバーできる。
 // GetMyeBaySellingにある「最大25,000件」の上限がなく、Site(出品国)も取れる。
-function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
-  const from = new Date();
-  const to = new Date(from.getTime() + 35 * 24 * 60 * 60 * 1000);
+function waBuildSellerListXml_(pageNumber, entriesPerPage, props, from, to) {
   const selectors = [
     'ItemArray.Item.ItemID',
     'ItemArray.Item.SKU',
@@ -391,8 +389,7 @@ function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
     'PaginationResult',
     'HasMoreItems'
   ].map(s => '<OutputSelector>' + s + '</OutputSelector>').join('');
-  const xml =
-    '<?xml version="1.0" encoding="utf-8"?>' +
+  return '<?xml version="1.0" encoding="utf-8"?>' +
     '<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
     '<Version>' + props.TRADING_API_VERSION + '</Version>' +
     '<DetailLevel>ReturnAll</DetailLevel>' +
@@ -404,10 +401,11 @@ function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
     '<PageNumber>' + pageNumber + '</PageNumber>' +
     '</Pagination>' +
     '</GetSellerListRequest>';
-  const responseText = waTradingFetch_('GetSellerList', xml, props);
-  const doc = XmlService.parse(responseText);
-  waAssertTradingAck_(doc, responseText);
+}
 
+function waParseSellerListResponse_(text, label) {
+  const doc = XmlService.parse(text);
+  waAssertTradingAck_(doc, text);
   const root = doc.getRootElement();
   const ns = root.getNamespace();
   const pagination = waChild_(root, ns, 'PaginationResult');
@@ -416,6 +414,46 @@ function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
   const itemElements = itemArray ? itemArray.getChildren('Item', ns) : [];
   const items = itemElements.map(item => waParseTradingItemElement_(item, ns));
   return { items: items, totalPages: totalPages || 1 };
+}
+
+function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
+  const from = new Date();
+  const to = new Date(from.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const responseText = waTradingFetch_('GetSellerList', waBuildSellerListXml_(pageNumber, entriesPerPage, props, from, to), props);
+  return waParseSellerListResponse_(responseText, 'page ' + pageNumber);
+}
+
+// GetSellerListを複数ページまとめて並列取得する(fetchAllで高速化)
+function waGetSellerListPagesParallel_(startPage, pageCount, entriesPerPage, props) {
+  const from = new Date();
+  const to = new Date(from.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const token = waGetValidAccessToken_(props);
+  const base = waGetTradingApiBase_(props);
+  const requests = [];
+  for (let p = startPage; p < startPage + pageCount; p++) {
+    requests.push({
+      url: base,
+      method: 'post',
+      contentType: 'text/xml; charset=UTF-8',
+      headers: {
+        'X-EBAY-API-COMPATIBILITY-LEVEL': props.TRADING_API_VERSION,
+        'X-EBAY-API-CALL-NAME': 'GetSellerList',
+        'X-EBAY-API-SITEID': waGetTradingSiteId_(props),
+        'X-EBAY-API-IAF-TOKEN': token
+      },
+      payload: waBuildSellerListXml_(p, entriesPerPage, props, from, to),
+      muteHttpExceptions: true
+    });
+  }
+  const responses = UrlFetchApp.fetchAll(requests);
+  return responses.map((response, i) => {
+    const code = response.getResponseCode();
+    const text = response.getContentText();
+    if (code < 200 || code >= 300) {
+      throw new Error('GetSellerList page ' + (startPage + i) + ' failed: HTTP ' + code + ' ' + text.slice(0, 300));
+    }
+    return waParseSellerListResponse_(text, 'page ' + (startPage + i));
+  });
 }
 
 function waBuildReviseFixedPriceItemXml_(row, item, props) {

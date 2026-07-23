@@ -481,46 +481,45 @@ function webBulkSearchChunk(token, params) {
   const matches = [];
   let done = false;
 
+  // GetSellerList(終了日ウィンドウ方式)を6ページ並列で取得する:
+  // 25,000件上限がなく出品国も取れる。並列化で1回の呼び出し時間を約1/6に短縮
+  const PARALLEL_PAGES = 6;
   while (Date.now() - startedAt < WEB_BULK_CHUNK_TIME_LIMIT_MS) {
-    // GetSellerList(終了日ウィンドウ方式)を使う: 25,000件上限がなく、出品国も取れる
-    const page = waGetSellerListPage_(pageNumber, 200, props);
-    totalPages = page.totalPages;
-    if (page.items.length === 0) {
+    const batchCount = totalPages
+      ? Math.max(1, Math.min(PARALLEL_PAGES, totalPages - pageNumber + 1))
+      : PARALLEL_PAGES;
+    if (totalPages && pageNumber > totalPages) {
       done = true;
       break;
     }
-
-    let finishedPage = true;
-    for (let index = itemIndex; index < page.items.length; index++) {
-      if (Date.now() - startedAt >= WEB_BULK_CHUNK_TIME_LIMIT_MS) {
-        itemIndex = index;
-        finishedPage = false;
-        break;
+    const pages = waGetSellerListPagesParallel_(pageNumber, batchCount, 200, props);
+    let sawItems = false;
+    for (const page of pages) {
+      totalPages = page.totalPages;
+      if (page.items.length > 0) {
+        sawItems = true;
       }
-      const summary = page.items[index];
-      checked++;
-      // アメリカ以外の出品はスキップ。自動車部品はSiteが「eBayMotors」で返るためUS扱いにする
-      if (summary.site && summary.site !== 'US' && summary.site !== 'eBayMotors') {
-        continue;
+      for (const summary of page.items) {
+        checked++;
+        // アメリカ以外の出品はスキップ。自動車部品はSiteが「eBayMotors」で返るためUS扱いにする
+        if (summary.site && summary.site !== 'US' && summary.site !== 'eBayMotors') {
+          continue;
+        }
+        const item = summary.shippingProfileId ? summary : waGetTradingItem_(summary.itemId, props);
+        if (String(item.shippingProfileId) !== fromPolicyId) {
+          continue;
+        }
+        matches.push({
+          itemId: String(item.itemId),
+          sku: String(item.sku || ''),
+          title: String(item.title || ''),
+          priceUSD: item.price ? waRoundMoney_(item.price) : ''
+        });
       }
-      const item = summary.shippingProfileId ? summary : waGetTradingItem_(summary.itemId, props);
-      if (String(item.shippingProfileId) !== fromPolicyId) {
-        continue;
-      }
-      matches.push({
-        itemId: String(item.itemId),
-        sku: String(item.sku || ''),
-        title: String(item.title || ''),
-        priceUSD: item.price ? waRoundMoney_(item.price) : ''
-      });
     }
-
-    if (!finishedPage) {
-      break;
-    }
-    pageNumber++;
+    pageNumber += pages.length;
     itemIndex = 0;
-    if (pageNumber > totalPages) {
+    if (!sawItems || (totalPages && pageNumber > totalPages)) {
       done = true;
       break;
     }
