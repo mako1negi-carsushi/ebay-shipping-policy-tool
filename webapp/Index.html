@@ -290,10 +290,12 @@
             </div>
           </div>
           <div class="actions">
-            <button id="bulkSearchBtn" onclick="startBulkSearch()">① 対象出品を検索</button>
-            <button id="bulkStopBtn" class="secondary" onclick="stopBulkSearch()" disabled>検索を一時停止</button>
+            <button id="bulkSearchBtn" onclick="startBulkSearch()">① 対象出品を検索(キャッシュから・数秒)</button>
+            <button id="bulkScanBtn" class="secondary" onclick="startSnapshotScan()">①C 全出品スキャン(キャッシュ作成/更新・約40〜60分)</button>
+            <button id="bulkStopBtn" class="secondary" onclick="stopBulkSearch()" disabled>スキャンを一時停止</button>
             <button id="bulkApplyBtn" class="danger" onclick="applyBulk()" disabled>② チェックした出品を更新</button>
           </div>
+          <p class="muted">使い方: まず「①C 全出品スキャン」を1回実行してキャッシュを作る(米国・eBayMotorsの出品だけ保存)。以降は「①」で何ポリシーでも数秒で検索できます。出品を大きく増減させたら①Cで更新してください。</p>
           <details style="margin-top:12px;">
             <summary>①B Item IDを直接貼り付けて取得(検索で見つからない出品に)</summary>
             <p class="muted">eBayは検索APIで最大25,000件までしか出品を返さないため、それを超える分は①の検索に出ません。eBayのポリシー画面で「N listings」のリンクを開き、残っている出品のItem ID(数字)をここに貼り付けてください(改行・カンマ・スペース区切り、混ざっていてもOK)。</p>
@@ -617,50 +619,69 @@
         document.querySelector('#bulkTable tbody').innerHTML = '';
         document.getElementById('bulkCheckAll').checked = false;
         bulkMatchCount = 0;
-        bulkCursor = { pageNumber: 1, itemIndex: 0, totalPages: 0, checked: 0 };
-        bulkRunning = true;
-        document.getElementById('bulkSearchBtn').disabled = true;
-        document.getElementById('bulkStopBtn').disabled = false;
         document.getElementById('bulkApplyBtn').disabled = true;
-        await bulkSearchLoop(fromPolicyId);
+        const progress = document.getElementById('bulkProgress');
+        progress.classList.remove('hidden');
+        progress.textContent = 'キャッシュから検索中...';
+        try {
+          const result = await callServer('webSearchFromCache', sessionToken, { fromPolicyId: fromPolicyId });
+          if (result.noCache) {
+            progress.textContent =
+              'キャッシュがまだありません。先に「①C 全出品スキャン」を1回実行してください(約40〜60分・その後は何度でも数秒で検索できます)。';
+            return;
+          }
+          result.matches.forEach(addBulkRow);
+          const age = result.cacheUpdatedAt ? new Date(result.cacheUpdatedAt).toLocaleString('ja-JP') : '不明';
+          progress.textContent =
+            '検索完了(キャッシュ: ' + age + ' 時点 / 保存 ' + result.totalRows + '件)。候補 ' + bulkMatchCount +
+            '件。更新したい行にチェックを入れて「② チェックした出品を更新」を押してください。' +
+            (bulkMatchCount === 0 ? ' ※0件の場合はキャッシュが古い可能性があります。①Cで更新してみてください。' : '');
+        } catch (error) {
+          setStatus('検索中にエラーが発生しました: ' + errText(error), true);
+        }
+        document.getElementById('bulkApplyBtn').disabled = bulkMatchCount === 0;
       }
 
-      async function bulkSearchLoop(fromPolicyId) {
+      // ①C 全出品スキャン: キャッシュを作成/更新する(重い処理・1回だけ)
+      async function startSnapshotScan() {
+        if (!confirm('全出品スキャンを開始します。約40〜60分かかりますが、完了後は「①」で何度でも数秒で検索できます。よろしいですか?')) return;
+        bulkCursor = { pageNumber: 1, totalPages: 0, checked: 0, saved: 0 };
+        bulkRunning = true;
+        document.getElementById('bulkSearchBtn').disabled = true;
+        document.getElementById('bulkScanBtn').disabled = true;
+        document.getElementById('bulkStopBtn').disabled = false;
         const progress = document.getElementById('bulkProgress');
         progress.classList.remove('hidden');
         try {
+          let first = true;
           while (bulkRunning) {
             progress.textContent =
-              '検索中... ページ ' + bulkCursor.pageNumber + ' / ' + (bulkCursor.totalPages || '?') +
-              ' | チェック済み ' + bulkCursor.checked + '件 | 候補 ' + bulkMatchCount + '件';
-            const result = await callServer('webBulkSearchChunk', sessionToken, {
-              fromPolicyId: fromPolicyId,
+              'スキャン中... ページ ' + bulkCursor.pageNumber + ' / ' + (bulkCursor.totalPages || '?') +
+              ' | チェック済み ' + bulkCursor.checked + '件 | 保存済みUS出品 ' + bulkCursor.saved + '件';
+            const result = await callServer('webScanSnapshotChunk', sessionToken, {
               pageNumber: bulkCursor.pageNumber,
-              itemIndex: bulkCursor.itemIndex,
-              totalPages: bulkCursor.totalPages
+              totalPages: bulkCursor.totalPages,
+              reset: first
             });
+            first = false;
             bulkCursor.pageNumber = result.pageNumber;
-            bulkCursor.itemIndex = result.itemIndex;
             bulkCursor.totalPages = result.totalPages;
             bulkCursor.checked += result.checked;
-            result.matches.forEach(addBulkRow);
+            bulkCursor.saved = result.savedRows;
             if (result.done) {
               bulkRunning = false;
               progress.textContent =
-                '検索完了。チェック済み ' + bulkCursor.checked + '件 | 候補 ' + bulkMatchCount + '件。更新したい行にチェックを入れて「② チェックした出品を更新」を押してください。';
+                'スキャン完了!US/eBayMotorsの出品 ' + result.savedRows + '件をキャッシュに保存しました。これからは「①」で数秒で検索できます。';
               break;
             }
           }
-          if (bulkRunning === false && bulkCursor.totalPages && bulkCursor.pageNumber <= bulkCursor.totalPages) {
-            // 一時停止で抜けた場合
-          }
         } catch (error) {
           bulkRunning = false;
-          setStatus('検索中にエラーが発生しました: ' + errText(error), true);
+          setStatus('スキャン中にエラーが発生しました: ' + errText(error), true);
         }
         document.getElementById('bulkSearchBtn').disabled = false;
+        document.getElementById('bulkScanBtn').disabled = false;
         document.getElementById('bulkStopBtn').disabled = true;
-        document.getElementById('bulkApplyBtn').disabled = bulkMatchCount === 0;
       }
 
       function stopBulkSearch() {

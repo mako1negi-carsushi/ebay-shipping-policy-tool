@@ -535,6 +535,127 @@ function webBulkSearchChunk(token, params) {
   };
 }
 
+// ---- 全出品スナップショット(キャッシュ) ----
+// 重い全ページスキャンは1回だけ行い、結果をDriveに保存。
+// 以降のポリシー検索は保存データから数秒で行う。
+
+function waGetScanCacheFileName_(email) {
+  return 'ebay-shipping-tool-cache_' + email + '.json';
+}
+
+function waLoadScanCache_(email) {
+  const files = DriveApp.getFilesByName(waGetScanCacheFileName_(email));
+  if (!files.hasNext()) return null;
+  const file = files.next();
+  try {
+    return { file: file, data: JSON.parse(file.getBlob().getDataAsString('UTF-8')) };
+  } catch (e) {
+    return { file: file, data: null };
+  }
+}
+
+function waSaveScanCache_(email, data, existingFile) {
+  const content = JSON.stringify(data);
+  if (existingFile) {
+    existingFile.setContent(content);
+    return existingFile;
+  }
+  return DriveApp.createFile(waGetScanCacheFileName_(email), content, 'application/json');
+}
+
+// スナップショット作成: 全ページを少しずつスキャンしてUS/eBayMotors出品を保存する
+function webScanSnapshotChunk(token, params) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  params = params || {};
+  const startedAt = Date.now();
+  let pageNumber = Math.max(1, Number(params.pageNumber) || 1);
+  let totalPages = Number(params.totalPages) || 0;
+  let checked = 0;
+  let done = false;
+
+  const loaded = waLoadScanCache_(email);
+  let cache = (params.reset || !loaded || !loaded.data) ?
+    { updatedAt: '', rows: [] } : loaded.data;
+  if (params.reset) {
+    cache = { updatedAt: '', rows: [] };
+  }
+
+  const PARALLEL_PAGES = 6;
+  while (Date.now() - startedAt < WEB_BULK_CHUNK_TIME_LIMIT_MS) {
+    const batchCount = totalPages
+      ? Math.max(1, Math.min(PARALLEL_PAGES, totalPages - pageNumber + 1))
+      : PARALLEL_PAGES;
+    if (totalPages && pageNumber > totalPages) {
+      done = true;
+      break;
+    }
+    const pages = waGetSellerListPagesParallel_(pageNumber, batchCount, 200, props);
+    let sawItems = false;
+    for (const page of pages) {
+      totalPages = page.totalPages;
+      if (page.items.length > 0) sawItems = true;
+      for (const summary of page.items) {
+        checked++;
+        if (summary.site && summary.site !== 'US' && summary.site !== 'eBayMotors') continue;
+        cache.rows.push({
+          i: String(summary.itemId),
+          s: String(summary.sku || ''),
+          t: String(summary.title || ''),
+          p: summary.price ? String(summary.price) : '',
+          f: String(summary.shippingProfileId || '')
+        });
+      }
+    }
+    pageNumber += pages.length;
+    if (!sawItems || (totalPages && pageNumber > totalPages)) {
+      done = true;
+      break;
+    }
+  }
+
+  if (done) {
+    cache.updatedAt = new Date().toISOString();
+  }
+  waSaveScanCache_(email, cache, loaded ? loaded.file : null);
+
+  return {
+    pageNumber: pageNumber,
+    totalPages: totalPages,
+    checked: checked,
+    savedRows: cache.rows.length,
+    done: done
+  };
+}
+
+// キャッシュからポリシー検索(数秒)
+function webSearchFromCache(token, params) {
+  const email = requireWebAppSession_(token);
+  params = params || {};
+  const fromPolicyId = String(params.fromPolicyId || '').trim();
+  if (!fromPolicyId) {
+    throw new Error('置換元の配送ポリシーIDを入力してください。');
+  }
+  const loaded = waLoadScanCache_(email);
+  if (!loaded || !loaded.data || !loaded.data.updatedAt) {
+    return { noCache: true, matches: [], cacheUpdatedAt: '', totalRows: 0 };
+  }
+  const matches = loaded.data.rows
+    .filter(row => String(row.f) === fromPolicyId)
+    .map(row => ({
+      itemId: row.i,
+      sku: row.s,
+      title: row.t,
+      priceUSD: row.p ? waRoundMoney_(row.p) : ''
+    }));
+  return {
+    noCache: false,
+    matches: matches,
+    cacheUpdatedAt: loaded.data.updatedAt,
+    totalRows: loaded.data.rows.length
+  };
+}
+
 // 診断: 検索APIが返す中身を1ページ分だけ集計して表示する(トラブル調査用)
 function webDiagScan(token) {
   const email = requireWebAppSession_(token);
