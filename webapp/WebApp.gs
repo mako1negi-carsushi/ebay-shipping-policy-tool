@@ -657,6 +657,21 @@ function webSearchFromCache(token, params) {
   };
 }
 
+// 診断: eBay APIの使用量と上限を表示する
+function webDiagApiUsage(token) {
+  const email = requireWebAppSession_(token);
+  const props = waGetUserEbayProps_(email);
+  const interesting = {
+    'ApplicationAggregate': true,
+    'GetSellerList': true,
+    'GetMyeBaySelling': true,
+    'GetItem': true,
+    'ReviseFixedPriceItem': true
+  };
+  const rules = waGetApiAccessRules_(props).filter(r => interesting[r.call]);
+  return { rules: rules, note: '上限は毎日 米国太平洋時間0時(日本時間の16〜17時ごろ)にリセットされます。' };
+}
+
 // 診断: 検索APIが返す中身を1ページ分だけ集計して表示する(トラブル調査用)
 function webDiagScan(token) {
   const email = requireWebAppSession_(token);

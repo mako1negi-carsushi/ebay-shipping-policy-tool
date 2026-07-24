@@ -303,6 +303,7 @@
             <div class="actions">
               <button onclick="startBulkLookup()">①B Item IDから取得して表に追加</button>
               <button class="secondary" onclick="runDiagScan()">🔍 検索の診断(1ページだけ・数十秒)</button>
+              <button class="secondary" onclick="runDiagUsage()">📊 API使用量を確認</button>
             </div>
             <pre id="diagResult" class="hidden" style="white-space:pre-wrap;background:#f6f6f6;padding:10px;border-radius:6px;font-size:12px;"></pre>
           </details>
@@ -677,7 +678,11 @@
           }
         } catch (error) {
           bulkRunning = false;
-          setStatus('スキャン中にエラーが発生しました: ' + errText(error), true);
+          let msg = errText(error);
+          if (/exceeded usage limit/i.test(msg)) {
+            msg += ' → eBay APIの1日の使用回数上限に達しています。上限は毎日 日本時間の16〜17時ごろ(米国太平洋時間0時)にリセットされるので、その後に再開してください。「📊 API使用量を確認」ボタンで残り回数を確認できます。';
+          }
+          setStatus('スキャン中にエラーが発生しました: ' + msg, true);
         }
         document.getElementById('bulkSearchBtn').disabled = false;
         document.getElementById('bulkScanBtn').disabled = false;
@@ -688,6 +693,19 @@
         bulkRunning = false;
         document.getElementById('bulkProgress').textContent =
           '一時停止しました。候補 ' + bulkMatchCount + '件。このまま更新もできます(検索を最初からやり直すこともできます)。';
+      }
+
+      // 診断: APIの使用量と上限を表示する
+      async function runDiagUsage() {
+        const box = document.getElementById('diagResult');
+        box.classList.remove('hidden');
+        box.textContent = 'API使用量を確認中...';
+        try {
+          const result = await callServer('webDiagApiUsage', sessionToken);
+          box.textContent = JSON.stringify(result, null, 2);
+        } catch (error) {
+          box.textContent = 'API使用量の確認エラー: ' + errText(error);
+        }
       }
 
       // 診断: 検索APIの1ページ目を集計して表示する

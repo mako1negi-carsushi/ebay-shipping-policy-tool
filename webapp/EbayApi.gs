@@ -423,6 +423,29 @@ function waGetSellerListPage_(pageNumber, entriesPerPage, props) {
   return waParseSellerListResponse_(responseText, 'page ' + pageNumber);
 }
 
+// APIの使用量と上限を取得する(eBayのGetApiAccessRules)
+function waGetApiAccessRules_(props) {
+  const xml =
+    '<?xml version="1.0" encoding="utf-8"?>' +
+    '<GetApiAccessRulesRequest xmlns="urn:ebay:apis:eBLBaseComponents">' +
+    '<Version>' + props.TRADING_API_VERSION + '</Version>' +
+    '</GetApiAccessRulesRequest>';
+  const text = waTradingFetch_('GetApiAccessRules', xml, props);
+  const doc = XmlService.parse(text);
+  waAssertTradingAck_(doc, text);
+  const root = doc.getRootElement();
+  const ns = root.getNamespace();
+  return root.getChildren('ApiAccessRule', ns).map(rule => ({
+    call: waTextChild_(rule, ns, 'CallName'),
+    dailyLimit: waTextChild_(rule, ns, 'DailyHardLimit'),
+    dailyUsage: waTextChild_(rule, ns, 'DailyUsage'),
+    hourlyLimit: waTextChild_(rule, ns, 'HourlyHardLimit'),
+    hourlyUsage: waTextChild_(rule, ns, 'HourlyUsage'),
+    periodicLimit: waTextChild_(rule, ns, 'PeriodicHardLimit'),
+    periodicUsage: waTextChild_(rule, ns, 'PeriodicUsage')
+  }));
+}
+
 // GetSellerListを複数ページまとめて並列取得する(fetchAllで高速化)
 function waGetSellerListPagesParallel_(startPage, pageCount, entriesPerPage, props) {
   const from = new Date();
