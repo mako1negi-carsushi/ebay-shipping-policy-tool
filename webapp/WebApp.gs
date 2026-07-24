@@ -539,28 +539,17 @@ function webBulkSearchChunk(token, params) {
 // 重い全ページスキャンは1回だけ行い、結果をDriveに保存。
 // 以降のポリシー検索は保存データから数秒で行う。
 
-function waGetScanCacheFileName_(email) {
-  return 'ebay-shipping-tool-cache_' + email + '.json';
-}
-
-function waLoadScanCache_(email) {
-  const files = DriveApp.getFilesByName(waGetScanCacheFileName_(email));
-  if (!files.hasNext()) return null;
-  const file = files.next();
-  try {
-    return { file: file, data: JSON.parse(file.getBlob().getDataAsString('UTF-8')) };
-  } catch (e) {
-    return { file: file, data: null };
+// キャッシュはツール付属のスプレッドシートに保存する(Drive権限が不要=承認作業ゼロ)
+// シート構成: A1=完了日時(スキャン完了まで空) / 2行目以降 = ItemID, SKU, 商品名, 価格, 配送ポリシーID
+function waGetCacheSheet_(email, createIfMissing) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const name = 'cache_' + email;
+  let sheet = ss.getSheetByName(name);
+  if (!sheet && createIfMissing) {
+    sheet = ss.insertSheet(name);
+    try { sheet.hideSheet(); } catch (e) {}
   }
-}
-
-function waSaveScanCache_(email, data, existingFile) {
-  const content = JSON.stringify(data);
-  if (existingFile) {
-    existingFile.setContent(content);
-    return existingFile;
-  }
-  return DriveApp.createFile(waGetScanCacheFileName_(email), content, 'application/json');
+  return sheet;
 }
 
 // スナップショット作成: 全ページを少しずつスキャンしてUS/eBayMotors出品を保存する
@@ -574,13 +563,13 @@ function webScanSnapshotChunk(token, params) {
   let checked = 0;
   let done = false;
 
-  const loaded = waLoadScanCache_(email);
-  let cache = (params.reset || !loaded || !loaded.data) ?
-    { updatedAt: '', rows: [] } : loaded.data;
+  const sheet = waGetCacheSheet_(email, true);
   if (params.reset) {
-    cache = { updatedAt: '', rows: [] };
+    sheet.clear();
+    sheet.getRange(1, 1).setValue('');
   }
 
+  const rows = [];
   const PARALLEL_PAGES = 6;
   while (Date.now() - startedAt < WEB_BULK_CHUNK_TIME_LIMIT_MS) {
     const batchCount = totalPages
@@ -598,13 +587,13 @@ function webScanSnapshotChunk(token, params) {
       for (const summary of page.items) {
         checked++;
         if (summary.site && summary.site !== 'US' && summary.site !== 'eBayMotors') continue;
-        cache.rows.push({
-          i: String(summary.itemId),
-          s: String(summary.sku || ''),
-          t: String(summary.title || ''),
-          p: summary.price ? String(summary.price) : '',
-          f: String(summary.shippingProfileId || '')
-        });
+        rows.push([
+          String(summary.itemId),
+          String(summary.sku || ''),
+          String(summary.title || ''),
+          summary.price ? String(summary.price) : '',
+          String(summary.shippingProfileId || '')
+        ]);
       }
     }
     pageNumber += pages.length;
@@ -614,16 +603,20 @@ function webScanSnapshotChunk(token, params) {
     }
   }
 
-  if (done) {
-    cache.updatedAt = new Date().toISOString();
+  if (rows.length > 0) {
+    const startRow = Math.max(2, sheet.getLastRow() + 1);
+    sheet.getRange(startRow, 1, rows.length, 5).setValues(rows);
   }
-  waSaveScanCache_(email, cache, loaded ? loaded.file : null);
+  if (done) {
+    sheet.getRange(1, 1).setValue(new Date().toISOString());
+  }
+  const savedRows = Math.max(0, sheet.getLastRow() - 1);
 
   return {
     pageNumber: pageNumber,
     totalPages: totalPages,
     checked: checked,
-    savedRows: cache.rows.length,
+    savedRows: savedRows,
     done: done
   };
 }
@@ -636,23 +629,31 @@ function webSearchFromCache(token, params) {
   if (!fromPolicyId) {
     throw new Error('置換元の配送ポリシーIDを入力してください。');
   }
-  const loaded = waLoadScanCache_(email);
-  if (!loaded || !loaded.data || !loaded.data.updatedAt) {
+  const sheet = waGetCacheSheet_(email, false);
+  if (!sheet) {
     return { noCache: true, matches: [], cacheUpdatedAt: '', totalRows: 0 };
   }
-  const matches = loaded.data.rows
-    .filter(row => String(row.f) === fromPolicyId)
-    .map(row => ({
-      itemId: row.i,
-      sku: row.s,
-      title: row.t,
-      priceUSD: row.p ? waRoundMoney_(row.p) : ''
-    }));
+  const updatedAt = String(sheet.getRange(1, 1).getValue() || '');
+  const lastRow = sheet.getLastRow();
+  if (!updatedAt || lastRow < 2) {
+    return { noCache: true, matches: [], cacheUpdatedAt: '', totalRows: 0 };
+  }
+  const values = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  const matches = [];
+  values.forEach(row => {
+    if (String(row[4]) !== fromPolicyId) return;
+    matches.push({
+      itemId: String(row[0]),
+      sku: String(row[1]),
+      title: String(row[2]),
+      priceUSD: row[3] !== '' && row[3] !== null ? waRoundMoney_(row[3]) : ''
+    });
+  });
   return {
     noCache: false,
     matches: matches,
-    cacheUpdatedAt: loaded.data.updatedAt,
-    totalRows: loaded.data.rows.length
+    cacheUpdatedAt: updatedAt,
+    totalRows: values.length
   };
 }
 
